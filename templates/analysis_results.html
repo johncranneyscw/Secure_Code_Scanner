@@ -1,0 +1,504 @@
+{% extends "base.html" %} {% block content %}
+
+<div class="container mt-4">
+  <!-- Header with Project Name -->
+  <div class="card glass-card shadow-lg border-0 mb-3">
+    <div class="card-body p-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h1 class="h5 text-accent mb-1">📊 CWE Analysis Results</h1>
+          <div class="d-flex align-items-center gap-3 mt-2">
+            <span class="badge bg-primary" style="font-size: 1rem; padding: 0.5rem 1rem;">
+              🤖 Model: {{ analysis.metadata.project }}
+            </span>
+            <span class="text-muted small">
+              Analyzed: {{ analysis.metadata.generated_at }}
+            </span>
+          </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">
+            ⬅️ Back to Home
+          </a>
+          <a href="{{ url_for('download_language_analysis_json') }}" class="btn btn-primary btn-sm">
+            📥 Download JSON
+          </a>
+          <a href="{{ url_for('download_language_analysis_excel') }}" class="btn btn-success btn-sm">
+            📊 Download Excel
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Card -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0 text-accent">📈 Analysis Summary</h2>
+        <span class="badge" style="background: linear-gradient(90deg, #6366f1, #e879f9); font-size: 0.9rem; padding: 0.5rem 1rem;">
+          {{ analysis.metadata.project }}
+        </span>
+      </div>
+      <div class="row">
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_runs }}</div>
+            <div class="stat-label">Total Runs</div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_languages }}</div>
+            <div class="stat-label">Languages Found</div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_unique_cwes }}</div>
+            <div class="stat-label">Unique CWEs</div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_findings }}</div>
+            <div class="stat-label">Total Findings</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mt-3">
+        <div class="col-md-6 mb-3">
+          <div class="stat-card bg-success bg-opacity-10">
+            <div class="stat-value text-success">{{ analysis.metadata.true_positives }}</div>
+            <div class="stat-label">True Positives</div>
+          </div>
+        </div>
+        <div class="col-md-6 mb-3">
+          <div class="stat-card bg-danger bg-opacity-10">
+            <div class="stat-value text-danger">{{ analysis.metadata.false_positives }}</div>
+            <div class="stat-label">False Positives</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <h6 class="text-muted mb-2">Languages Detected:</h6>
+        <div class="d-flex flex-wrap gap-2">
+          {% for lang in analysis.metadata.languages %}
+          <span class="badge bg-info text-dark">{{ lang }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Language Tabs -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-3">
+      <ul class="nav nav-pills mb-3" id="language-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button 
+            class="nav-link active" 
+            id="overview-tab" 
+            data-bs-toggle="pill" 
+            data-bs-target="#overview" 
+            type="button"
+          >
+            📊 Overview
+          </button>
+        </li>
+        {% for lang_name in analysis.by_language.keys() %}
+        <li class="nav-item" role="presentation">
+          <button 
+            class="nav-link" 
+            id="{{ lang_name }}-tab" 
+            data-bs-toggle="pill" 
+            data-bs-target="#{{ lang_name }}" 
+            type="button"
+          >
+            {{ lang_name|upper }}
+          </button>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <div class="tab-content" id="language-tab-content">
+        <!-- Overview Tab -->
+        <div class="tab-pane fade show active" id="overview" role="tabpanel">
+          <h5 class="text-accent mb-3">CWE Distribution Across All Languages</h5>
+          
+          <div class="table-responsive">
+            <table class="table table-dark table-hover">
+              <thead>
+                <tr>
+                  <th>CWE</th>
+                  <th>Name</th>
+                  <th>Languages</th>
+                  <th>Total Files Affected</th>
+                  <th>True Positives</th>
+                  <th>False Positives</th>
+                  <th>Runs Found</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cwe_id, cwe_data in analysis.overview.cwes.items() %}
+                <tr>
+                  <td><code>{{ cwe_id }}</code></td>
+                  <td><small>{{ cwe_data.cwe_name }}</small></td>
+                  <td>
+                    {% for lang in cwe_data.languages %}
+                    <span class="badge bg-secondary me-1">{{ lang }}</span>
+                    {% endfor %}
+                  </td>
+                  <td><strong>{{ cwe_data.total_files_affected }}</strong></td>
+                  <td><span class="badge bg-success">{{ cwe_data.true_positives }}</span></td>
+                  <td><span class="badge bg-danger">{{ cwe_data.false_positives }}</span></td>
+                  <td>{{ cwe_data.found_in_runs|length }}/{{ analysis.metadata.total_runs }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Language-Specific Tabs -->
+        {% for lang_name, lang_data in analysis.by_language.items() %}
+        <div class="tab-pane fade" id="{{ lang_name }}" role="tabpanel">
+          <h5 class="text-accent mb-3">{{ lang_name|upper }} - CWE Analysis</h5>
+          
+          <!-- Language Stats -->
+          <div class="row mb-4">
+            <div class="col-md-3 col-sm-6 mb-2">
+              <div class="stat-card-sm">
+                <div class="stat-value-sm">{{ lang_data.statistics.total_cwes }}</div>
+                <div class="stat-label-sm">CWEs</div>
+              </div>
+            </div>
+            <div class="col-md-3 col-sm-6 mb-2">
+              <div class="stat-card-sm">
+                <div class="stat-value-sm">{{ lang_data.statistics.total_files }}</div>
+                <div class="stat-label-sm">Files Affected</div>
+              </div>
+            </div>
+            <div class="col-md-3 col-sm-6 mb-2">
+              <div class="stat-card-sm bg-success bg-opacity-10">
+                <div class="stat-value-sm text-success">{{ lang_data.statistics.true_positives }}</div>
+                <div class="stat-label-sm">True Positives</div>
+              </div>
+            </div>
+            <div class="col-md-3 col-sm-6 mb-2">
+              <div class="stat-card-sm bg-danger bg-opacity-10">
+                <div class="stat-value-sm text-danger">{{ lang_data.statistics.false_positives }}</div>
+                <div class="stat-label-sm">False Positives</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CWE Details Table -->
+          <div class="table-responsive">
+            <table class="table table-dark table-hover">
+              <thead>
+                <tr>
+                  <th>CWE</th>
+                  <th>Name</th>
+                  <th>Severity</th>
+                  <th>Files Affected</th>
+                  <th>Verdicts</th>
+                  <th>Tools</th>
+                  <th>Runs</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cwe_id, cwe_info in lang_data.cwes.items() %}
+                <tr>
+                  <td><code>{{ cwe_id }}</code></td>
+                  <td><small>{{ cwe_info.cwe_name }}</small></td>
+                  <td>
+                    {% for severity in cwe_info.severities %}
+                    <span class="badge bg-sev-{{ severity|lower }} me-1">{{ severity }}</span>
+                    {% endfor %}
+                  </td>
+                  <td>
+                    <strong>{{ cwe_info.total_files_affected }}</strong>
+                    <button 
+                      class="btn btn-sm btn-outline-info ms-2" 
+                      type="button" 
+                      data-bs-toggle="collapse" 
+                      data-bs-target="#files-{{ lang_name }}-{{ cwe_id|replace('CWE-', '') }}"
+                    >
+                      View All Files
+                    </button>
+                  </td>
+                  <td>
+                    <span class="badge bg-success me-1">TP: {{ cwe_info.verdicts.true_positive }}</span>
+                    <span class="badge bg-danger">FP: {{ cwe_info.verdicts.false_positive }}</span>
+                  </td>
+                  <td>
+                    {% for tool in cwe_info.tools %}
+                    <span class="badge bg-secondary me-1">{{ tool }}</span>
+                    {% endfor %}
+                  </td>
+                  <td><small>{{ cwe_info.found_in_runs|join(', ') }}</small></td>
+                  <td>
+                    <button 
+                      class="btn btn-sm btn-outline-primary" 
+                      type="button" 
+                      data-bs-toggle="collapse" 
+                      data-bs-target="#details-{{ lang_name }}-{{ cwe_id|replace('CWE-', '') }}"
+                    >
+                      Show
+                    </button>
+                  </td>
+                </tr>
+                <!-- Collapsible Files List -->
+                <tr class="collapse" id="files-{{ lang_name }}-{{ cwe_id|replace('CWE-', '') }}">
+                  <td colspan="8" style="background-color: rgba(30, 41, 59, 0.5);">
+                    <div class="p-3 rounded" style="background-color: rgba(51, 65, 85, 0.8); border: 1px solid rgba(148, 163, 184, 0.3);">
+                      
+                      <div class="alert alert-info mb-3">
+                        <small>
+                          <strong>📊 Total: {{ cwe_info.total_files_affected }} unique files</strong> | 
+                          ✅ {{ cwe_info.true_positive_files|length }} have TP findings | 
+                          ❌ {{ cwe_info.false_positive_files|length }} have FP findings
+                          {% if cwe_info.unknown_files|length > 0 %}| ⚠️ {{ cwe_info.unknown_files|length }} unknown{% endif %}
+                          <br><em>Files show which runs had TP vs FP verdicts for detailed tracking</em>
+                        </small>
+                      </div>
+                      
+                      <!-- True Positive Files -->
+                      {% if cwe_info.true_positive_files|length > 0 %}
+                      <div class="mb-4">
+                        <h6 class="text-success mb-3">
+                          ✅ Files with True Positive Findings ({{ cwe_info.true_positive_files|length }}):
+                        </h6>
+                        <div class="row">
+                          {% for file in cwe_info.true_positive_files %}
+                          <div class="col-md-12 mb-2">
+                            <div class="p-2" style="background-color: rgba(15, 23, 42, 0.6); border-left: 3px solid #22c55e; border-radius: 4px;">
+                              <div class="d-flex justify-content-between align-items-start">
+                                <small class="text-light font-monospace flex-grow-1">{{ file }}</small>
+                                <div class="ms-3 text-end">
+                                  {% if cwe_info.file_verdict_by_run and file in cwe_info.file_verdict_by_run %}
+                                    {% set file_verdicts = cwe_info.file_verdict_by_run[file] %}
+                                    
+                                    {% if file_verdicts.true_positive_details %}
+                                    <div class="mb-1">
+                                      {% for detail in file_verdicts.true_positive_details %}
+                                      <span class="badge bg-success me-1 mb-1" style="font-size: 0.7rem;">
+                                        ✅ Run {{ detail.run }}: Line {{ detail.line }}
+                                      </span>
+                                      {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if file_verdicts.false_positive_details %}
+                                    <div>
+                                      {% for detail in file_verdicts.false_positive_details %}
+                                      <span class="badge bg-danger me-1 mb-1" style="font-size: 0.7rem;">
+                                        ❌ Run {{ detail.run }}: Line {{ detail.line }}
+                                      </span>
+                                      {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                  {% endif %}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      {% endif %}
+                      
+                      <!-- False Positive Files -->
+                      {% if cwe_info.false_positive_files|length > 0 %}
+                      <div class="mb-4">
+                        <h6 class="text-danger mb-3">
+                          ❌ Files with False Positive Findings ({{ cwe_info.false_positive_files|length }}):
+                        </h6>
+                        <div class="row">
+                          {% for file in cwe_info.false_positive_files %}
+                          <div class="col-md-12 mb-2">
+                            <div class="p-2" style="background-color: rgba(15, 23, 42, 0.6); border-left: 3px solid #ef4444; border-radius: 4px;">
+                              <div class="d-flex justify-content-between align-items-start">
+                                <small class="text-light font-monospace flex-grow-1">{{ file }}</small>
+                                <div class="ms-3 text-end">
+                                  {% if cwe_info.file_verdict_by_run and file in cwe_info.file_verdict_by_run %}
+                                    {% set file_verdicts = cwe_info.file_verdict_by_run[file] %}
+                                    
+                                    {% if file_verdicts.true_positive_details %}
+                                    <div class="mb-1">
+                                      {% for detail in file_verdicts.true_positive_details %}
+                                      <span class="badge bg-success me-1 mb-1" style="font-size: 0.7rem;">
+                                        ✅ Run {{ detail.run }}: Line {{ detail.line }}
+                                      </span>
+                                      {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if file_verdicts.false_positive_details %}
+                                    <div>
+                                      {% for detail in file_verdicts.false_positive_details %}
+                                      <span class="badge bg-danger me-1 mb-1" style="font-size: 0.7rem;">
+                                        ❌ Run {{ detail.run }}: Line {{ detail.line }}
+                                      </span>
+                                      {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                  {% endif %}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      {% endif %}
+                      
+                      <!-- Unknown Verdict Files -->
+                      {% if cwe_info.unknown_files|length > 0 %}
+                      <div class="mb-2">
+                        <h6 class="text-warning mb-3">
+                          ⚠️ Files with Unknown Verdict ({{ cwe_info.unknown_files|length }}):
+                        </h6>
+                        <div class="row">
+                          {% for file in cwe_info.unknown_files %}
+                          <div class="col-md-12 mb-2">
+                            <div class="p-2" style="background-color: rgba(15, 23, 42, 0.6); border-left: 3px solid #f59e0b; border-radius: 4px;">
+                              <div class="d-flex justify-content-between align-items-start">
+                                <small class="text-light font-monospace flex-grow-1">{{ file }}</small>
+                                <div class="ms-3 text-end">
+                                  {% if cwe_info.file_verdict_by_run and file in cwe_info.file_verdict_by_run %}
+                                    {% set file_verdicts = cwe_info.file_verdict_by_run[file] %}
+                                    {% if file_verdicts.unknown_details %}
+                                    <div>
+                                      {% for detail in file_verdicts.unknown_details %}
+                                      <span class="badge bg-warning text-dark me-1 mb-1" style="font-size: 0.7rem;">
+                                        ⚠️ Run {{ detail.run }}: Line {{ detail.line }}
+                                      </span>
+                                      {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                  {% endif %}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      {% endif %}
+                      
+                    </div>
+                  </td>
+                </tr>
+                <!-- Collapsible Details -->
+                <tr class="collapse" id="details-{{ lang_name }}-{{ cwe_id|replace('CWE-', '') }}">
+                  <td colspan="8" style="background-color: rgba(30, 41, 59, 0.5);">
+                    <div class="p-3 rounded" style="background-color: rgba(51, 65, 85, 0.8); border: 1px solid rgba(148, 163, 184, 0.3);">
+                      <h6 class="text-info mb-2">📊 File Count by Run:</h6>
+                      <div class="d-flex flex-wrap gap-2 mb-3">
+                        {% for run_id, count in cwe_info.file_counts_per_run.items() %}
+                        <span class="badge bg-primary">{{ run_id }}: {{ count }} files</span>
+                        {% endfor %}
+                      </div>
+
+                      <h6 class="text-info mb-2">📝 Example Findings:</h6>
+                      {% for example in cwe_info.examples[:3] %}
+                      <div class="alert alert-secondary mb-2" style="background-color: rgba(71, 85, 105, 0.5); border-left: 3px solid #f59e0b;">
+                        <div class="d-flex justify-content-between">
+                          <small><strong>Run {{ example.run }}</strong> - {{ example.scanner }}</small>
+                          <small class="text-info">Line {{ example.line }}</small>
+                        </div>
+                        <div class="font-monospace small text-warning mt-1">{{ example.file }}</div>
+                        <div class="small text-light mt-2" style="background-color: rgba(15, 23, 42, 0.6); padding: 8px; border-radius: 4px;">{{ example.message }}</div>
+                      </div>
+                      {% endfor %}
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .stat-card {
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 0.5rem;
+    text-align: center;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  
+  .stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #a5b4fc;
+  }
+  
+  .stat-label {
+    font-size: 0.875rem;
+    color: #94a3b8;
+    margin-top: 0.5rem;
+  }
+
+  .stat-card-sm {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 0.375rem;
+    text-align: center;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  
+  .stat-value-sm {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #a5b4fc;
+  }
+  
+  .stat-label-sm {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 0.25rem;
+  }
+
+  .nav-pills .nav-link {
+    background: rgba(255, 255, 255, 0.05);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .nav-pills .nav-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .nav-pills .nav-link.active {
+    background: linear-gradient(90deg, #6366f1, #e879f9);
+    border-color: #6366f1;
+  }
+
+  .table-dark {
+    --bs-table-bg: rgba(15, 23, 42, 0.5);
+  }
+
+  .table-dark th {
+    border-bottom: 2px solid rgba(148, 163, 184, 0.3);
+  }
+
+  .table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+</style>
+
+{% endblock %}

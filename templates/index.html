@@ -1,31 +1,67 @@
 {% extends "base.html" %} {% block content %}
 
 <div class="row justify-content-center">
-  <div class="col-lg-8">
-    <div class="card glass-card shadow-lg border-0">
+  <div class="col-lg-10">
+    <!-- Mode Selection Card -->
+    <div class="card glass-card shadow-lg border-0 mb-4">
       <div class="card-body p-4">
-        <h1 class="h4 mb-3 text-accent">Multi-Run Security Scanner</h1>
+        <h1 class="h4 mb-4 text-accent">Multi-Run Security Scanner</h1>
         
-        {% if num_runs > 0 %}
         <div class="alert alert-info mb-4">
-          <strong>📊 Current Status:</strong> You have {{ num_runs }} run(s) stored.
+          <strong>📊 Choose Your Mode:</strong>
+          <ul class="mb-0 mt-2">
+            <li><strong>Scan Mode:</strong> Upload ZIP files to run security scanners</li>
+            <li><strong>Analysis Mode:</strong> Upload existing results JSON to analyze CWEs by language</li>
+          </ul>
+        </div>
+
+        <!-- Mode Toggle Buttons -->
+        <div class="btn-group w-100 mb-4" role="group">
+          <button 
+            type="button" 
+            class="btn btn-lg mode-btn active" 
+            id="scan-mode-btn"
+            onclick="switchMode('scan')"
+          >
+            🔍 Scan Mode (Upload ZIPs)
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-lg mode-btn" 
+            id="analysis-mode-btn"
+            onclick="switchMode('analysis')"
+          >
+            📊 Analysis Mode (Upload JSON)
+          </button>
+        </div>
+
+        {% if num_runs > 0 %}
+        <div class="alert alert-warning mb-4">
+          <strong>⚠️ Current Status:</strong> You have {{ num_runs }} run(s) stored in memory.
           <div class="mt-2">
             <a href="{{ url_for('results_page') }}" class="btn btn-sm btn-primary">View Results</a>
             <a href="{{ url_for('clear_runs') }}" class="btn btn-sm btn-warning" onclick="return confirm('Clear all previous runs?')">Clear All Runs</a>
           </div>
         </div>
         {% endif %}
+      </div>
+    </div>
+
+    <!-- SCAN MODE: ZIP Upload -->
+    <div class="card glass-card shadow-lg border-0" id="scan-mode-card">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3 text-accent">🔍 Scan Mode: Upload ZIP Files</h2>
         
         <p class="text-muted small mb-4">
           Upload <strong>multiple .zip files</strong> (e.g., 10 code generations from same prompt). Each will be scanned with:
-          <span class="badge bg-info text-dark">Semgrep (config auto)</span>
-          <span class="badge bg-info text-dark">Bearer (SAST)</span>
-          <span class="badge bg-info text-dark">Bandit (Python SAST)</span>
-          <span class="badge bg-warning text-dark">Trivy (deps)</span>
-          <span class="badge bg-warning text-dark">OSV-Scanner (deps)</span>
+          <span class="badge bg-info text-dark">Semgrep</span>
+          <span class="badge bg-info text-dark">Bearer</span>
+          <span class="badge bg-info text-dark">Bandit</span>
+          <span class="badge bg-warning text-dark">Trivy</span>
+          <span class="badge bg-warning text-dark">OSV-Scanner</span>
         </p>
 
-        <form id="scan-form" method="post" enctype="multipart/form-data">
+        <form id="scan-form" action="{{ url_for('index') }}" method="post" enctype="multipart/form-data">
           <div class="mb-3">
             <label for="project_zip" class="form-label">
               Select Project ZIP files (can select multiple)
@@ -67,15 +103,6 @@
           </p>
         </form>
 
-        {% if num_runs > 0 %}
-        <div class="alert alert-info mt-3">
-          <small>
-            💾 <strong>{{ num_runs }}</strong> scan(s) stored in memory.
-            <a href="{{ url_for('clear_runs') }}" class="alert-link">Clear runs</a>
-          </small>
-        </div>
-        {% endif %}
-
         <div class="mt-3">
           <a href="{{ url_for('cleanup_all') }}" class="btn btn-sm btn-outline-warning">
             🧹 Clean Up Temporary Files
@@ -86,19 +113,115 @@
         </div>
       </div>
     </div>
+
+    <!-- ANALYSIS MODE: JSON Upload -->
+    <div class="card glass-card shadow-lg border-0" id="analysis-mode-card" style="display: none;">
+      <div class="card-body p-4">
+        <h2 class="h5 mb-3 text-accent">📊 Analysis Mode: Upload Results JSON</h2>
+        
+        <p class="text-muted small mb-4">
+          Upload a consolidated results JSON file (e.g., <code>consolidated_all_runs_10_runs_verdicted.json</code>) to analyze:
+        </p>
+
+        <div class="alert alert-info mb-4">
+          <strong>📈 Analysis Features:</strong>
+          <ul class="mb-0 small">
+            <li><strong>Language-wise CWE grouping</strong> - CWEs grouped by programming language based on file extensions</li>
+            <li><strong>File impact analysis</strong> - Shows how many files each CWE affects across all runs</li>
+            <li><strong>Verdict tracking</strong> - Distinguishes between true positives and false positives</li>
+            <li><strong>Cross-run comparison</strong> - Analyzes CWE patterns across multiple runs</li>
+            <li><strong>Tool correlation</strong> - Shows which tools detected each CWE</li>
+          </ul>
+        </div>
+
+        <form id="json-upload-form" action="{{ url_for('upload_json') }}" method="post" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label for="results_json" class="form-label">
+              Select Results JSON File
+            </label>
+            <input
+              class="form-control"
+              type="file"
+              id="results_json"
+              name="results_json"
+              accept=".json"
+              required
+            />
+            <div class="form-text">
+              Upload a JSON file containing scan results from multiple runs
+            </div>
+          </div>
+
+          <button class="btn btn-accent w-100" type="submit" id="json-upload-btn">
+            📤 Upload & Analyze JSON
+          </button>
+        </form>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
-  const fileInput = document.getElementById("project_zip");
-
-  // Show selected file count
-  fileInput.addEventListener("change", function() {
-    const count = this.files.length;
-    if (count > 0) {
-      console.log(`Selected ${count} file(s)`);
+  // Mode switching
+  function switchMode(mode) {
+    const scanCard = document.getElementById('scan-mode-card');
+    const analysisCard = document.getElementById('analysis-mode-card');
+    const scanBtn = document.getElementById('scan-mode-btn');
+    const analysisBtn = document.getElementById('analysis-mode-btn');
+    
+    if (mode === 'scan') {
+      scanCard.style.display = 'block';
+      analysisCard.style.display = 'none';
+      scanBtn.classList.add('active');
+      analysisBtn.classList.remove('active');
+    } else {
+      scanCard.style.display = 'none';
+      analysisCard.style.display = 'block';
+      scanBtn.classList.remove('active');
+      analysisBtn.classList.add('active');
     }
-  });
+  }
+
+  // File input feedback
+  const fileInput = document.getElementById("project_zip");
+  if (fileInput) {
+    fileInput.addEventListener("change", function() {
+      const count = this.files.length;
+      if (count > 0) {
+        console.log(`Selected ${count} file(s)`);
+      }
+    });
+  }
+
+  const jsonInput = document.getElementById("results_json");
+  if (jsonInput) {
+    jsonInput.addEventListener("change", function() {
+      if (this.files.length > 0) {
+        console.log(`Selected: ${this.files[0].name}`);
+      }
+    });
+  }
 </script>
+
+<style>
+  .mode-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    color: #cbd5e1;
+    transition: all 0.3s ease;
+  }
+  
+  .mode-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+  }
+  
+  .mode-btn.active {
+    background: linear-gradient(90deg, #6366f1, #e879f9);
+    border-color: #6366f1;
+    color: #fff;
+    font-weight: 600;
+  }
+</style>
 
 {% endblock %}

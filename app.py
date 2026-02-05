@@ -23,9 +23,13 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 REPORT_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"zip"}
+ALLOWED_JSON_EXTENSIONS = {"json"}
 
 # Changed to store multiple runs
 ALL_RUNS = []  # List of dicts, each containing results for one run
+
+# Store analysis results from JSON
+ANALYSIS_DATA = None
 
 # Progress tracking
 progress_queues = {}  # scan_id -> Queue for progress updates
@@ -33,6 +37,80 @@ progress_queues = {}  # scan_id -> Queue for progress updates
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def allowed_json_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_JSON_EXTENSIONS
+
+
+def get_language_from_file(filepath):
+    """Extract language from file extension or filename"""
+    if not filepath:
+        return 'unknown'
+    
+    # Get filename and extension
+    filename = Path(filepath).name
+    ext = Path(filepath).suffix.lower()
+    
+    # Check for special filenames first (files without extensions)
+    filename_map = {
+        'dockerfile': 'docker',
+        'docker-compose.yml': 'docker',
+        'docker-compose.yaml': 'docker',
+        'makefile': 'makefile',
+        'cmakelists.txt': 'cmake',
+        'rakefile': 'ruby',
+        'gemfile': 'ruby',
+        'vagrantfile': 'ruby',
+    }
+    
+    filename_lower = filename.lower()
+    if filename_lower in filename_map:
+        return filename_map[filename_lower]
+    
+    # Check for config files by extension
+    if filename_lower.endswith('.conf') or filename_lower.endswith('.config'):
+        return 'config'
+    
+    # Extension-based mapping
+    ext_map = {
+        '.c': 'c',
+        '.h': 'c',
+        '.cpp': 'cpp',
+        '.cc': 'cpp',
+        '.cxx': 'cpp',
+        '.hpp': 'cpp',
+        '.java': 'java',
+        '.js': 'javascript',
+        '.jsx': 'javascript',
+        '.ts': 'typescript',
+        '.tsx': 'typescript',
+        '.py': 'python',
+        '.rb': 'ruby',
+        '.go': 'go',
+        '.rs': 'rust',
+        '.php': 'php',
+        '.cs': 'csharp',
+        '.swift': 'swift',
+        '.kt': 'kotlin',
+        '.scala': 'scala',
+        '.sh': 'shell',
+        '.bash': 'shell',
+        '.sql': 'sql',
+        '.yaml': 'yaml',
+        '.yml': 'yaml',
+        '.json': 'json',
+        '.xml': 'xml',
+        '.html': 'html',
+        '.css': 'css',
+        '.conf': 'config',
+        '.config': 'config',
+        '.ini': 'config',
+        '.toml': 'config',
+        '.properties': 'config',
+    }
+    
+    return ext_map.get(ext, 'unknown')
 
 
 def generate_docx_report(project_name, sast_summary, dep_summary, out_path: Path):
@@ -97,6 +175,289 @@ def generate_docx_report(project_name, sast_summary, dep_summary, out_path: Path
         doc.add_paragraph("No dependency findings.")
 
     doc.save(out_path)
+
+
+def analyze_json_by_language(json_data):
+    """
+    Analyze JSON data to group CWEs by language and provide comprehensive statistics
+    
+    Returns analysis including:
+    - Language-wise CWE grouping
+    - File impact analysis (how many files each CWE affects)
+    - Verdict tracking (true positive vs false positive)
+    - Cross-run comparison
+    - Tool correlation
+    """
+    analysis = {
+        "metadata": {
+            "total_runs": json_data.get("total_runs", 0),
+            "project": json_data.get("project", "Unknown"),
+            "generated_at": json_data.get("generated_at", "Unknown"),
+            "total_findings": 0,
+            "true_positives": 0,
+            "false_positives": 0,
+            "total_unique_cwes": 0,
+            "total_languages": 0,
+            "languages": []
+        },
+        "by_language": {},  # language -> {cwes: {}, statistics: {}}
+        "overview": {
+            "cwes": {}  # Global CWE overview across all languages
+        }
+    }
+    
+    # Track global data
+    all_languages = set()
+    global_cwe_data = {}  # cwe_id -> {languages: set(), total_files: set(), ...}
+    
+    # Process all runs
+    for run in json_data.get("runs", []):
+        run_number = run.get("run_number")
+        results = run.get("results", {})
+        sast_results = results.get("sast", {})
+        
+        # Process all SAST findings
+        for tool_name, findings in sast_results.items():
+            for finding in findings:
+                analysis["metadata"]["total_findings"] += 1
+                
+                # Track verdicts
+                verdict = finding.get("verdict", "unknown")
+                if verdict == "true_positive":
+                    analysis["metadata"]["true_positives"] += 1
+                elif verdict == "false_positive":
+                    analysis["metadata"]["false_positives"] += 1
+                
+                # Extract data
+                cwe_id = finding.get("cwe", "CWE-UNKNOWN")
+                file_path = finding.get("file", "")
+                language = get_language_from_file(file_path)
+                severity = finding.get("severity", "UNKNOWN")
+                line = finding.get("line", 0)
+                message = finding.get("message", "")
+                scanner = finding.get("scanner", tool_name)
+                
+                # Track language
+                all_languages.add(language)
+                
+                # Initialize language entry if needed
+                if language not in analysis["by_language"]:
+                    analysis["by_language"][language] = {
+                        "cwes": {},
+                        "statistics": {
+                            "total_cwes": 0,
+                            "total_files": 0,
+                            "true_positives": 0,
+                            "false_positives": 0,
+                            "unique_file_set": set()  # Temporary for tracking
+                        }
+                    }
+                
+                lang_data = analysis["by_language"][language]
+                
+                # Initialize CWE entry for this language
+                if cwe_id not in lang_data["cwes"]:
+                    lang_data["cwes"][cwe_id] = {
+                        "cwe_id": cwe_id,
+                        "cwe_name": get_cwe_name(cwe_id),
+                        "total_files_affected": 0,
+                        "affected_files": set(),  # Temporary set for unique files
+                        "verdicts": {"true_positive": 0, "false_positive": 0, "unknown": 0},
+                        "severities": set(),
+                        "tools": set(),
+                        "found_in_runs": set(),
+                        "file_counts_per_run": {},
+                        "run_file_tracking": {},  # Track files per run
+                        "examples": []
+                    }
+                
+                cwe_entry = lang_data["cwes"][cwe_id]
+                
+                # Update CWE data - track files by verdict
+                cwe_entry["affected_files"].add(file_path)
+                
+                # Track files separately by verdict for detailed view
+                verdict_key = f"{verdict}_files"
+                if verdict_key not in cwe_entry:
+                    cwe_entry[verdict_key] = set()
+                cwe_entry[verdict_key].add(file_path)
+                
+                # NEW: Track which runs had which verdicts for each file WITH LINE NUMBERS
+                if "file_verdict_by_run" not in cwe_entry:
+                    cwe_entry["file_verdict_by_run"] = {}
+                
+                if file_path not in cwe_entry["file_verdict_by_run"]:
+                    cwe_entry["file_verdict_by_run"][file_path] = {
+                        "true_positive_details": {},  # Dict of {(run, line): scanner} to deduplicate
+                        "false_positive_details": {},
+                        "unknown_details": {}
+                    }
+                
+                # Use (run, line) as key to deduplicate scanner reports on same line
+                detail_key = (run_number, line)
+                
+                # Store the finding (deduplicates automatically since we use dict)
+                if verdict == "true_positive":
+                    if detail_key not in cwe_entry["file_verdict_by_run"][file_path]["true_positive_details"]:
+                        cwe_entry["file_verdict_by_run"][file_path]["true_positive_details"][detail_key] = scanner
+                elif verdict == "false_positive":
+                    if detail_key not in cwe_entry["file_verdict_by_run"][file_path]["false_positive_details"]:
+                        cwe_entry["file_verdict_by_run"][file_path]["false_positive_details"][detail_key] = scanner
+                else:
+                    if detail_key not in cwe_entry["file_verdict_by_run"][file_path]["unknown_details"]:
+                        cwe_entry["file_verdict_by_run"][file_path]["unknown_details"][detail_key] = scanner
+                
+                cwe_entry["verdicts"][verdict] = cwe_entry["verdicts"].get(verdict, 0) + 1
+                cwe_entry["severities"].add(severity)
+                cwe_entry["tools"].add(scanner)
+                cwe_entry["found_in_runs"].add(run_number)
+                
+                # Track files per run
+                if run_number not in cwe_entry["run_file_tracking"]:
+                    cwe_entry["run_file_tracking"][run_number] = set()
+                cwe_entry["run_file_tracking"][run_number].add(file_path)
+                
+                # Add example (limited to first 5)
+                if len(cwe_entry["examples"]) < 5:
+                    cwe_entry["examples"].append({
+                        "run": run_number,
+                        "file": file_path,
+                        "line": line,
+                        "scanner": scanner,
+                        "message": message,
+                        "verdict": verdict
+                    })
+                
+                # Track unique files for language statistics
+                lang_data["statistics"]["unique_file_set"].add(file_path)
+                
+                # Update verdict stats for language
+                if verdict == "true_positive":
+                    lang_data["statistics"]["true_positives"] += 1
+                elif verdict == "false_positive":
+                    lang_data["statistics"]["false_positives"] += 1
+                
+                # Global CWE tracking
+                if cwe_id not in global_cwe_data:
+                    global_cwe_data[cwe_id] = {
+                        "cwe_id": cwe_id,
+                        "cwe_name": get_cwe_name(cwe_id),
+                        "languages": set(),
+                        "total_files_affected": set(),
+                        "true_positives": 0,
+                        "false_positives": 0,
+                        "found_in_runs": set(),
+                        "tools": set()
+                    }
+                
+                global_entry = global_cwe_data[cwe_id]
+                global_entry["languages"].add(language)
+                global_entry["total_files_affected"].add(file_path)
+                global_entry["found_in_runs"].add(run_number)
+                global_entry["tools"].add(scanner)
+                if verdict == "true_positive":
+                    global_entry["true_positives"] += 1
+                elif verdict == "false_positive":
+                    global_entry["false_positives"] += 1
+    
+    # Post-process: Convert sets to counts/lists
+    for language, lang_data in analysis["by_language"].items():
+        for cwe_id, cwe_entry in lang_data["cwes"].items():
+            # Calculate file counts per run
+            for run_num, file_set in cwe_entry["run_file_tracking"].items():
+                cwe_entry["file_counts_per_run"][f"run_{run_num}"] = len(file_set)
+            
+            # Calculate total affected files
+            cwe_entry["total_files_affected"] = len(cwe_entry["affected_files"])
+            
+            # Convert sets to sorted lists
+            cwe_entry["affected_files"] = sorted(list(cwe_entry["affected_files"]))
+            
+            # Convert verdict-separated file sets to lists
+            if "true_positive_files" in cwe_entry:
+                cwe_entry["true_positive_files"] = sorted(list(cwe_entry["true_positive_files"]))
+            else:
+                cwe_entry["true_positive_files"] = []
+            
+            if "false_positive_files" in cwe_entry:
+                cwe_entry["false_positive_files"] = sorted(list(cwe_entry["false_positive_files"]))
+            else:
+                cwe_entry["false_positive_files"] = []
+            
+            if "unknown_files" in cwe_entry:
+                cwe_entry["unknown_files"] = sorted(list(cwe_entry["unknown_files"]))
+            else:
+                cwe_entry["unknown_files"] = []
+            
+            # Convert file_verdict_by_run dicts to sorted lists
+            if "file_verdict_by_run" in cwe_entry:
+                for file_path, verdicts in cwe_entry["file_verdict_by_run"].items():
+                    # Convert TP dict to list
+                    tp_list = [
+                        {"run": run, "line": line, "scanner": scanner}
+                        for (run, line), scanner in verdicts["true_positive_details"].items()
+                    ]
+                    verdicts["true_positive_details"] = sorted(tp_list, key=lambda x: (x["run"], x["line"]))
+                    
+                    # Convert FP dict to list
+                    fp_list = [
+                        {"run": run, "line": line, "scanner": scanner}
+                        for (run, line), scanner in verdicts["false_positive_details"].items()
+                    ]
+                    verdicts["false_positive_details"] = sorted(fp_list, key=lambda x: (x["run"], x["line"]))
+                    
+                    # Convert unknown dict to list
+                    unknown_list = [
+                        {"run": run, "line": line, "scanner": scanner}
+                        for (run, line), scanner in verdicts["unknown_details"].items()
+                    ]
+                    verdicts["unknown_details"] = sorted(unknown_list, key=lambda x: (x["run"], x["line"]))
+            
+            cwe_entry["severities"] = sorted(list(cwe_entry["severities"]))
+            cwe_entry["tools"] = sorted(list(cwe_entry["tools"]))
+            cwe_entry["found_in_runs"] = sorted(list(cwe_entry["found_in_runs"]))
+            
+            # Remove temporary tracking
+            del cwe_entry["run_file_tracking"]
+        
+        # Update language statistics
+        lang_data["statistics"]["total_cwes"] = len(lang_data["cwes"])
+        lang_data["statistics"]["total_files"] = len(lang_data["statistics"]["unique_file_set"])
+        del lang_data["statistics"]["unique_file_set"]  # Remove temporary set
+        
+        # Sort CWEs by files affected (descending)
+        lang_data["cwes"] = dict(sorted(
+            lang_data["cwes"].items(),
+            key=lambda x: x[1]["total_files_affected"],
+            reverse=True
+        ))
+    
+    # Process global CWE overview
+    for cwe_id, cwe_data in global_cwe_data.items():
+        analysis["overview"]["cwes"][cwe_id] = {
+            "cwe_id": cwe_id,
+            "cwe_name": cwe_data["cwe_name"],
+            "languages": sorted(list(cwe_data["languages"])),
+            "total_files_affected": len(cwe_data["total_files_affected"]),
+            "true_positives": cwe_data["true_positives"],
+            "false_positives": cwe_data["false_positives"],
+            "found_in_runs": sorted(list(cwe_data["found_in_runs"])),
+            "tools": sorted(list(cwe_data["tools"]))
+        }
+    
+    # Sort overview CWEs by total files affected
+    analysis["overview"]["cwes"] = dict(sorted(
+        analysis["overview"]["cwes"].items(),
+        key=lambda x: x[1]["total_files_affected"],
+        reverse=True
+    ))
+    
+    # Update metadata
+    analysis["metadata"]["total_unique_cwes"] = len(global_cwe_data)
+    analysis["metadata"]["total_languages"] = len(all_languages)
+    analysis["metadata"]["languages"] = sorted(list(all_languages))
+    
+    return analysis
 
 
 def generate_comparison_excel(all_runs_data, out_path: Path):
@@ -889,6 +1250,290 @@ def scan_progress(scan_id):
         return redirect(url_for("index"))
     
     return render_template("progress.html", scan_id=scan_id)
+
+
+@app.route("/upload_json", methods=["POST"])
+def upload_json():
+    """Upload and analyze a results JSON file"""
+    global ANALYSIS_DATA
+    
+    if "results_json" not in request.files:
+        flash("No JSON file uploaded", "warning")
+        return redirect(url_for("index"))
+    
+    file = request.files["results_json"]
+    
+    if file.filename == "":
+        flash("No file selected", "warning")
+        return redirect(url_for("index"))
+    
+    if not allowed_json_file(file.filename):
+        flash("Invalid file type. Please upload a .json file", "danger")
+        return redirect(url_for("index"))
+    
+    try:
+        # Read and parse JSON
+        json_data = json.load(file)
+        
+        # Comprehensive validation
+        validation_errors = []
+        
+        # Check required top-level fields
+        if "runs" not in json_data:
+            validation_errors.append("Missing 'runs' array in JSON")
+        elif not isinstance(json_data["runs"], list):
+            validation_errors.append("'runs' must be an array")
+        elif len(json_data["runs"]) == 0:
+            validation_errors.append("'runs' array is empty")
+        
+        if validation_errors:
+            flash(f"Invalid JSON structure: {'; '.join(validation_errors)}", "danger")
+            return redirect(url_for("index"))
+        
+        # Validate and count all data
+        total_runs = len(json_data["runs"])
+        total_findings = 0
+        total_sast_findings = 0
+        total_dep_findings = 0
+        missing_data_warnings = []
+        
+        for run_idx, run in enumerate(json_data["runs"]):
+            run_num = run.get("run_number", run_idx + 1)
+            
+            # Check run structure
+            if "results" not in run:
+                missing_data_warnings.append(f"Run {run_num}: Missing 'results'")
+                continue
+            
+            results = run["results"]
+            
+            # Count SAST findings
+            if "sast" in results:
+                for tool, findings in results["sast"].items():
+                    if not isinstance(findings, list):
+                        missing_data_warnings.append(f"Run {run_num}: {tool} findings not a list")
+                        continue
+                    
+                    total_sast_findings += len(findings)
+                    total_findings += len(findings)
+                    
+                    # Validate each finding
+                    for finding_idx, finding in enumerate(findings):
+                        required_fields = ["cwe", "file", "severity", "scanner"]
+                        for field in required_fields:
+                            if field not in finding:
+                                missing_data_warnings.append(
+                                    f"Run {run_num}, {tool}, finding {finding_idx}: Missing '{field}'"
+                                )
+            else:
+                missing_data_warnings.append(f"Run {run_num}: No SAST results")
+            
+            # Count DEP findings
+            if "dep" in results:
+                for tool, findings in results["dep"].items():
+                    if isinstance(findings, list):
+                        total_dep_findings += len(findings)
+                        total_findings += len(findings)
+        
+        # Report validation results
+        if missing_data_warnings:
+            print("⚠️  DATA VALIDATION WARNINGS:")
+            for warning in missing_data_warnings[:10]:  # Show first 10
+                print(f"   {warning}")
+            if len(missing_data_warnings) > 10:
+                print(f"   ... and {len(missing_data_warnings) - 10} more warnings")
+        
+        print(f"\n✅ JSON VALIDATION COMPLETE:")
+        print(f"   Total runs: {total_runs}")
+        print(f"   Total findings: {total_findings}")
+        print(f"   SAST findings: {total_sast_findings}")
+        print(f"   DEP findings: {total_dep_findings}")
+        print(f"   Validation warnings: {len(missing_data_warnings)}")
+        
+        # Perform language-wise analysis
+        ANALYSIS_DATA = analyze_json_by_language(json_data)
+        
+        # Verify no data loss
+        analyzed_findings = ANALYSIS_DATA['metadata']['total_findings']
+        if analyzed_findings != total_sast_findings:
+            flash(
+                f"⚠️ Warning: Analyzed {analyzed_findings} findings but JSON contained {total_sast_findings} SAST findings. "
+                f"Some data may not have been processed correctly.",
+                "warning"
+            )
+        
+        success_msg = (
+            f"✅ Successfully analyzed {ANALYSIS_DATA['metadata']['total_runs']} runs with "
+            f"{ANALYSIS_DATA['metadata']['total_findings']} findings! "
+            f"Found {ANALYSIS_DATA['metadata']['total_languages']} languages and "
+            f"{ANALYSIS_DATA['metadata']['total_unique_cwes']} unique CWEs."
+        )
+        
+        if missing_data_warnings:
+            success_msg += f" ({len(missing_data_warnings)} data warnings - check console for details)"
+        
+        flash(success_msg, "success")
+        return redirect(url_for("analysis_results"))
+        
+    except json.JSONDecodeError as e:
+        flash(f"Invalid JSON file: {str(e)}", "danger")
+        return redirect(url_for("index"))
+    except Exception as e:
+        flash(f"Error processing JSON: {str(e)}", "danger")
+        print(f"ERROR: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return redirect(url_for("index"))
+
+
+@app.route("/analysis_results")
+def analysis_results():
+    """Display analysis results from uploaded JSON"""
+    global ANALYSIS_DATA
+    
+    if ANALYSIS_DATA is None:
+        flash("No analysis data available. Please upload a JSON file first.", "warning")
+        return redirect(url_for("index"))
+    
+    return render_template("analysis_results.html", analysis=ANALYSIS_DATA)
+
+
+@app.route("/download_language_analysis_json")
+def download_language_analysis_json():
+    """Download the language-wise analysis as JSON"""
+    global ANALYSIS_DATA
+    
+    if ANALYSIS_DATA is None:
+        flash("No analysis data available", "warning")
+        return redirect(url_for("index"))
+    
+    # Prepare JSON-serializable version (convert remaining sets if any)
+    serializable_data = json.loads(json.dumps(ANALYSIS_DATA, default=str))
+    
+    filename = f"language_cwe_analysis_{ANALYSIS_DATA['metadata']['total_runs']}_runs.json"
+    filepath = REPORT_DIR / filename
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(serializable_data, f, indent=2, ensure_ascii=False)
+    
+    return send_from_directory(REPORT_DIR, filename, as_attachment=True)
+
+
+@app.route("/download_language_analysis_excel")
+def download_language_analysis_excel():
+    """Download language-wise CWE analysis as Excel"""
+    global ANALYSIS_DATA
+    
+    if ANALYSIS_DATA is None:
+        flash("No analysis data available", "warning")
+        return redirect(url_for("index"))
+    
+    wb = Workbook()
+    
+    # Overview Sheet
+    ws_overview = wb.active
+    ws_overview.title = "Overview"
+    
+    # Styles
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    center_align = Alignment(horizontal="center", vertical="center")
+    
+    # Write metadata
+    ws_overview.append(["Language-Wise CWE Analysis"])
+    ws_overview.append([])
+    ws_overview.append(["Total Runs", ANALYSIS_DATA["metadata"]["total_runs"]])
+    ws_overview.append(["Total Languages", ANALYSIS_DATA["metadata"]["total_languages"]])
+    ws_overview.append(["Total Unique CWEs", ANALYSIS_DATA["metadata"]["total_unique_cwes"]])
+    ws_overview.append(["Total Findings", ANALYSIS_DATA["metadata"]["total_findings"]])
+    ws_overview.append(["True Positives", ANALYSIS_DATA["metadata"]["true_positives"]])
+    ws_overview.append(["False Positives", ANALYSIS_DATA["metadata"]["false_positives"]])
+    ws_overview.append([])
+    
+    # Overview table headers
+    headers = ["CWE", "Name", "Languages", "Files Affected", "True Positives", "False Positives", "Runs Found"]
+    ws_overview.append(headers)
+    
+    header_row = ws_overview.max_row
+    for col in range(1, len(headers) + 1):
+        cell = ws_overview.cell(header_row, col)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+    
+    # Write overview data
+    for cwe_id, cwe_data in ANALYSIS_DATA["overview"]["cwes"].items():
+        ws_overview.append([
+            cwe_id,
+            cwe_data["cwe_name"],
+            ", ".join(cwe_data["languages"]),
+            cwe_data["total_files_affected"],
+            cwe_data["true_positives"],
+            cwe_data["false_positives"],
+            ", ".join(map(str, cwe_data["found_in_runs"]))
+        ])
+    
+    # Adjust column widths
+    ws_overview.column_dimensions['A'].width = 15
+    ws_overview.column_dimensions['B'].width = 50
+    ws_overview.column_dimensions['C'].width = 20
+    ws_overview.column_dimensions['D'].width = 15
+    ws_overview.column_dimensions['E'].width = 15
+    ws_overview.column_dimensions['F'].width = 15
+    ws_overview.column_dimensions['G'].width = 20
+    
+    # Create a sheet for each language
+    for lang_name, lang_data in ANALYSIS_DATA["by_language"].items():
+        ws = wb.create_sheet(title=lang_name.upper()[:31])  # Sheet name limit is 31 chars
+        
+        # Language statistics
+        ws.append([f"{lang_name.upper()} Statistics"])
+        ws.append([])
+        ws.append(["Total CWEs", lang_data["statistics"]["total_cwes"]])
+        ws.append(["Total Files", lang_data["statistics"]["total_files"]])
+        ws.append(["True Positives", lang_data["statistics"]["true_positives"]])
+        ws.append(["False Positives", lang_data["statistics"]["false_positives"]])
+        ws.append([])
+        
+        # CWE table headers
+        headers = ["CWE", "Name", "Files Affected", "TP", "FP", "Severities", "Tools", "Runs"]
+        ws.append(headers)
+        
+        header_row = ws.max_row
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(header_row, col)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_align
+        
+        # Write CWE data
+        for cwe_id, cwe_info in lang_data["cwes"].items():
+            ws.append([
+                cwe_id,
+                cwe_info["cwe_name"],
+                cwe_info["total_files_affected"],
+                cwe_info["verdicts"]["true_positive"],
+                cwe_info["verdicts"]["false_positive"],
+                ", ".join(cwe_info["severities"]),
+                ", ".join(cwe_info["tools"]),
+                ", ".join(map(str, cwe_info["found_in_runs"]))
+            ])
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 15
+        ws.column_dimensions['B'].width = 50
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 10
+        ws.column_dimensions['E'].width = 10
+        ws.column_dimensions['F'].width = 20
+        ws.column_dimensions['G'].width = 20
+        ws.column_dimensions['H'].width = 15
+    
+    filename = f"language_cwe_analysis_{ANALYSIS_DATA['metadata']['total_runs']}_runs.xlsx"
+    filepath = REPORT_DIR / filename
+    wb.save(filepath)
+    
+    return send_from_directory(REPORT_DIR, filename, as_attachment=True)
 
 
 @app.route("/progress_stream/<scan_id>")
