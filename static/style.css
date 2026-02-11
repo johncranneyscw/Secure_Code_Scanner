@@ -75,3 +75,84 @@ body {
 code {
   font-size: 0.8rem;
 }
+
+/* Ensure all badges have white text for visibility */
+.badge {
+  color: #ffffff !important;
+}
+
+/* Special handling for light-colored badges */
+.badge.bg-light {
+  color: #000000 !important;
+  background-color: #f8f9fa !important;
+}
+
+.badge.bg-warning {
+  color: #000000 !important;
+}
+
+/* Fix for dark background text visibility */
+.card.bg-dark .text-light,
+.card.bg-dark strong,
+.card.bg-dark .stat-value {
+  color: #f1f5f9 !important;
+}
+
+.card.bg-dark .text-muted {
+  color: #94a3b8 !important;
+}
+
+/* Ensure text in factor cards is visible */
+.card.bg-dark .card-body strong {
+  font-size: 1.5rem;
+  color: #ffffff !important;
+}
+
+.card.bg-dark .card-body span.text-light {
+  color: #e2e8f0 !important;
+}
+
+/* Fix for calculation detail cards */
+.alert.alert-dark {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+.alert.alert-dark code {
+  color: #f1f5f9;
+  background-color: #0f172a;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+/* Stat cards */
+.stat-card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #f1f5f9 !important;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: #94a3b8 !important;
+  margin-top: 0.25rem;
+}
+
+/* Fix for font colors in calculation tables */
+.table-dark td,
+.table-dark th {
+  color: #e2e8f0 !important;
+}
+
+.table-dark code {
+  color: #a5b4fc;
+}

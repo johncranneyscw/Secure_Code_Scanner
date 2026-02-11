@@ -1,0 +1,184 @@
+{% extends "base.html" %} {% block content %}
+
+<div class="container mt-4">
+  <!-- Header -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h1 class="h4 text-accent mb-2">🔬 Detailed Score Calculations</h1>
+          <p class="text-light small mb-0">Complete breakdown of how each CWE risk score was calculated</p>
+        </div>
+        <div>
+          <a href="{{ url_for('analysis_results') }}" class="btn btn-outline-light btn-sm">
+            ⬅️ Back to Analysis
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Score Calculation -->
+  {% if analysis.model_score %}
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <h2 class="h5 text-warning mb-3">📊 Model-Level Score Calculation</h2>
+      
+      <div class="alert alert-dark border border-info">
+        <h6 class="text-info">Formula:</h6>
+        <code class="text-white d-block mb-3" style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.5rem;">
+          Final Score = (100 - Composite Risk) × 0.7 + Density Score × 0.3
+        </code>
+        
+        <h6 class="text-info mt-3">Step-by-Step:</h6>
+        <div class="small font-monospace text-light" style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.5rem;">
+          <strong class="text-white">1. Composite Risk =</strong><br>
+          <span class="text-light">&nbsp;&nbsp;0.4 × Top5_Avg + 0.3 × Weighted_Avg + 0.3 × Max_Risk</span><br>
+          <span class="text-warning">&nbsp;&nbsp;= 0.4 × {{ analysis.model_score.components.critical_penalty }} + 
+             0.3 × {{ analysis.model_score.components.weighted_avg_risk }} + 
+             0.3 × {{ analysis.model_score.components.max_risk }}</span><br>
+          <span class="text-info">&nbsp;&nbsp;= {{ (analysis.model_score.components.critical_penalty * 0.4)|round(2) }} + 
+             {{ (analysis.model_score.components.weighted_avg_risk * 0.3)|round(2) }} + 
+             {{ (analysis.model_score.components.max_risk * 0.3)|round(2) }}</span><br>
+          <span class="text-danger">&nbsp;&nbsp;= <strong>{{ analysis.model_score.components.composite_risk }}</strong></span><br>
+          
+          <strong class="text-white mt-2 d-block">2. Security Score =</strong><br>
+          <span class="text-light">&nbsp;&nbsp;100 - Composite Risk</span><br>
+          <span class="text-warning">&nbsp;&nbsp;= 100 - {{ analysis.model_score.components.composite_risk }}</span><br>
+          <span class="text-info">&nbsp;&nbsp;= <strong>{{ (100 - analysis.model_score.components.composite_risk)|round(2) }}</strong></span><br>
+          
+          <strong class="text-white mt-2 d-block">3. Final Score =</strong><br>
+          <span class="text-light">&nbsp;&nbsp;Security Score × 0.7 + Density Score × 0.3</span><br>
+          <span class="text-warning">&nbsp;&nbsp;= {{ (100 - analysis.model_score.components.composite_risk)|round(2) }} × 0.7 + 
+             {{ analysis.model_score.components.density_score }} × 0.3</span><br>
+          <span class="text-info">&nbsp;&nbsp;= {{ ((100 - analysis.model_score.components.composite_risk) * 0.7)|round(2) }} + 
+             {{ (analysis.model_score.components.density_score * 0.3)|round(2) }}</span><br>
+          <span class="text-success">&nbsp;&nbsp;= <strong>{{ analysis.model_score.final_score }}/100</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- CWE-Level Calculations -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <h2 class="h5 text-warning mb-3">🔢 Individual CWE Risk Calculations</h2>
+      
+      <div class="alert alert-info mb-4">
+        <strong class="text-white">Formula:</strong> <span class="text-light">Risk Score = V × I × L × Vol × C × 100 (capped at 100)</span><br>
+        <small class="text-light">Click on any CWE to see detailed calculation breakdown</small>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-dark table-hover table-sm">
+          <thead>
+            <tr>
+              <th class="text-white">CWE</th>
+              <th class="text-white">Risk Score</th>
+              <th class="text-white">Level</th>
+              <th class="text-white">Severity</th>
+              <th class="text-white">V</th>
+              <th class="text-white">I</th>
+              <th class="text-white">L</th>
+              <th class="text-white">Vol</th>
+              <th class="text-white">C</th>
+              <th class="text-white">TPs</th>
+              <th class="text-white">Files</th>
+              <th class="text-white">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if analysis.risk_scores %}
+              {% for cwe_id, score_data in analysis.risk_scores.items()|sort(attribute='1.risk_score', reverse=True) %}
+              <tr>
+                <td><code class="text-info">{{ cwe_id }}</code></td>
+                <td>
+                  <strong class="text-{{ score_data.risk_color }}" style="font-size: 1.1rem;">{{ score_data.risk_score }}</strong>
+                </td>
+                <td>
+                  <span class="badge bg-{{ score_data.risk_color }}">{{ score_data.risk_level }}</span>
+                </td>
+                <td>
+                  {% if score_data.severities %}
+                    {% for sev in score_data.severities %}
+                      <span class="badge bg-secondary">{{ sev }}</span>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-muted">N/A</span>
+                  {% endif %}
+                </td>
+                <td class="text-warning">{{ score_data.V }}</td>
+                <td class="text-warning">{{ score_data.I }}</td>
+                <td class="text-warning">{{ score_data.L }}</td>
+                <td class="text-warning">{{ score_data.Vol }}</td>
+                <td class="text-warning">{{ score_data.C }}</td>
+                <td class="text-success">{{ score_data.tp_count }}</td>
+                <td class="text-info">{{ score_data.tp_file_count }}</td>
+                <td>
+                  <a href="{{ url_for('cwe_calculation', cwe_id=cwe_id) }}" class="btn btn-sm btn-outline-info">
+                    🔍 Details
+                  </a>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="12" class="text-center text-muted">No scoring data available</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-3">
+      <h6 class="text-white mb-3">📖 Factor Definitions</h6>
+      <div class="row">
+        <div class="col-md-4 mb-2">
+          <strong class="text-info">V (Validation):</strong> <span class="text-light">1 if TP exists, else 0</span>
+        </div>
+        <div class="col-md-4 mb-2">
+          <strong class="text-info">I (Impact):</strong> <span class="text-light">Severity-based (0.4-1.0)</span>
+        </div>
+        <div class="col-md-4 mb-2">
+          <strong class="text-info">L (Likelihood):</strong> <span class="text-light">% of runs with TP</span>
+        </div>
+        <div class="col-md-4 mb-2">
+          <strong class="text-info">Vol (Volume):</strong> <span class="text-light">log₁₀(files + 1)</span>
+        </div>
+        <div class="col-md-4 mb-2">
+          <strong class="text-info">C (Confidence):</strong> <span class="text-light">Tool count (0.7-1.0)</span>
+        </div>
+        <div class="col-md-4 mb-2">
+          <strong class="text-info">TPs:</strong> <span class="text-light">True Positive count</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .table-dark {
+    --bs-table-bg: rgba(15, 23, 42, 0.5);
+    color: #e5e7eb;
+  }
+
+  .table-dark th {
+    border-bottom: 2px solid rgba(148, 163, 184, 0.3);
+  }
+
+  .table-dark td {
+    color: #e5e7eb;
+  }
+
+  .table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+</style>
+
+{% endblock %}

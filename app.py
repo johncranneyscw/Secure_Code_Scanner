@@ -5,6 +5,7 @@ import tempfile, shutil, uuid
 import openpyxl
 import json
 import time
+import math
 from queue import Queue
 from threading import Thread
 
@@ -12,6 +13,290 @@ from scanners import run_all_scanners, build_sast_summary, build_dep_summary
 from docx import Document  # needs python-docx
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
+
+
+def calculate_risk_scores(analysis_data, total_runs):
+    """
+    Calculate risk scores for each CWE using Scoring System v2
+    
+    Formula: Risk Score = V × I × L × Vol × C × 100 (capped at 100)
+    
+    V (Validation): 1 if TP exists, 0 otherwise
+    I (Impact): Severity-based (0.4 to 1.0)
+    L (Likelihood): Percentage of runs with TP (0-1)
+    Vol (Volume): log₁₀(TP_file_count + 1) - measures systemic spread
+    C (Confidence): Tool count based (0.7, 0.85, 1.0)
+    
+    Only TRUE POSITIVES are counted (FP ignored)
+    Volume uses affected file count to measure systemic spread rather
+    than total finding count to avoid overweighting concentrated issues.
+    """
+    
+    # Severity mapping
+    # Note: Semgrep's ERROR→HIGH, WARNING→MEDIUM, INFO→LOW (backwards compatible)
+    SEVERITY_MAP = {
+        'CRITICAL': 1.0,
+        'HIGH': 0.8,
+        'ERROR': 0.8,      # Semgrep: ERROR = HIGH
+        'MEDIUM': 0.6,
+        'WARNING': 0.6,    # Semgrep: WARNING = MEDIUM
+        'LOW': 0.4,
+        'INFO': 0.4        # Semgrep: INFO = LOW
+    }
+    
+    scored_cwes = {}
+    
+    for language, lang_data in analysis_data['by_language'].items():
+        for cwe_id, cwe_info in lang_data['cwes'].items():
+            # Only process if we have TPs
+            tp_count = cwe_info['verdicts'].get('true_positive', 0)
+            
+            if tp_count == 0:
+                continue
+            
+            # If CWE already seen in another language, aggregate the data
+            if cwe_id in scored_cwes:
+                # Aggregate across languages
+                existing = scored_cwes[cwe_id]
+                
+                # Update counts
+                existing['_tp_count_total'] += tp_count
+                existing['_fp_count_total'] += cwe_info['verdicts'].get('false_positive', 0)
+                
+                # Add files (check for duplicates across languages - unlikely but possible)
+                existing_files = set(existing['_tp_files'])
+                new_files = set(cwe_info.get('true_positive_files', []))
+                existing['_tp_files'] = list(existing_files | new_files)
+                
+                # Update runs (union of runs)
+                existing_runs = set(existing['_runs'])
+                new_runs = set(cwe_info.get('found_in_runs', []))
+                existing['_runs'] = list(existing_runs | new_runs)
+                
+                # Update tools (union of tools)
+                existing_tools = set(existing['_tools'])
+                new_tools = set(cwe_info.get('tools', []))
+                existing['_tools'] = list(existing_tools | new_tools)
+                
+                # Update severities (union, take max for scoring)
+                existing_sevs = set(existing['_severities'])
+                new_sevs = set(cwe_info.get('severities', []))
+                existing['_severities'] = list(existing_sevs | new_sevs)
+                
+                continue  # Don't recalculate yet, will do after aggregation
+            
+            # First time seeing this CWE - store raw data for aggregation
+            scored_cwes[cwe_id] = {
+                '_tp_count_total': tp_count,
+                '_fp_count_total': cwe_info['verdicts'].get('false_positive', 0),
+                '_tp_files': list(cwe_info.get('true_positive_files', [])),
+                '_runs': list(cwe_info.get('found_in_runs', [])),
+                '_tools': list(cwe_info.get('tools', [])),
+                '_severities': list(cwe_info.get('severities', []))
+            }
+    
+    # Now calculate risk scores for each aggregated CWE
+    final_scored_cwes = {}
+    
+    for cwe_id, aggregated_data in scored_cwes.items():
+        tp_count = aggregated_data['_tp_count_total']
+        fp_count = aggregated_data['_fp_count_total']
+        tp_files = aggregated_data['_tp_files']
+        runs = aggregated_data['_runs']
+        tools = aggregated_data['_tools']
+        severities = aggregated_data['_severities']
+        
+        # 1. Validation Switch (V): 1 if TP exists
+        V = 1
+        
+        # 2. Impact (I): Based on severity (use highest if multiple)
+        impact_scores = [SEVERITY_MAP.get(s.upper(), 0.5) for s in severities]
+        I = max(impact_scores)
+        
+        # 3. Likelihood (L): Percentage of runs with this CWE
+        runs_with_cwe = len(runs)
+        L = runs_with_cwe / total_runs if total_runs > 0 else 0
+        
+        # 4. Volume (Vol): Log-scaled TP file count (systemic spread)
+        # Uses number of files affected rather than total finding count
+        # to measure how widespread the vulnerability is across the codebase
+        tp_file_count = len(tp_files)
+        Vol = math.log10(tp_file_count + 1) if tp_file_count > 0 else 0
+        
+        # 5. Confidence (C): Based on number of tools
+        tools_count = len(tools)
+        if tools_count == 1:
+            C = 0.7
+        elif tools_count == 2:
+            C = 0.85
+        else:  # 3+ tools
+            C = 1.0
+        
+        # Calculate Risk Score
+        risk_score = V * I * L * Vol * C * 100
+        risk_score = min(risk_score, 100)  # Cap at 100
+        
+        # Determine risk level
+        if risk_score >= 80:
+            risk_level = 'CRITICAL'
+            risk_color = 'danger'
+        elif risk_score >= 60:
+            risk_level = 'HIGH'
+            risk_color = 'warning'
+        elif risk_score >= 40:
+            risk_level = 'MEDIUM'
+            risk_color = 'info'
+        elif risk_score >= 20:
+            risk_level = 'LOW'
+            risk_color = 'secondary'
+        else:
+            risk_level = 'MINIMAL'
+            risk_color = 'success'  # Changed from 'light' to 'success' (green) for visibility
+        
+        final_scored_cwes[cwe_id] = {
+            'risk_score': round(risk_score, 2),
+            'risk_level': risk_level,
+            'risk_color': risk_color,
+            'V': V,
+            'I': round(I, 2),
+            'L': round(L, 2),
+            'Vol': round(Vol, 2),
+            'C': C,
+            'tp_count': tp_count,
+            'tp_file_count': tp_file_count,  # Store for dashboard display
+            'fp_count': fp_count,
+            'runs_count': runs_with_cwe,
+            'tools_count': tools_count,
+            'severities': severities,  # Store severity list
+            'tools': tools,  # Store tool list
+            'runs': runs  # Store run list
+        }
+    
+    return final_scored_cwes
+
+
+def calculate_model_score(scored_cwes, total_runs, total_findings, total_tp, total_files_with_tp):
+    """
+    Calculate overall model security score
+    
+    Uses composite methodology:
+    - 40% weight on top 5 CWE average
+    - 30% weight on weighted average risk
+    - 30% weight on maximum risk
+    
+    Combined with vulnerability density (30% weight)
+    """
+    
+    if not scored_cwes:
+        return {
+            'final_score': 100.0,
+            'rating': 'EXCELLENT',
+            'color': 'success'
+        }
+    
+    # Sort CWEs by risk score
+    sorted_cwes = sorted(scored_cwes.items(), key=lambda x: x[1]['risk_score'], reverse=True)
+    
+    # Method 1: Top CWE Average
+    top_n = min(10, len(sorted_cwes))
+    top_scores = [cwe[1]['risk_score'] for cwe in sorted_cwes[:top_n]]
+    avg_top_risk = sum(top_scores) / top_n if top_n > 0 else 0
+    
+    # Method 2: Weighted Average
+    total_weighted_risk = sum(
+        cwe[1]['risk_score'] * cwe[1]['tp_count'] 
+        for cwe in sorted_cwes
+    )
+    total_tp_sum = sum(cwe[1]['tp_count'] for cwe in sorted_cwes)
+    weighted_avg_risk = total_weighted_risk / total_tp_sum if total_tp_sum > 0 else 0
+    
+    # Method 3: Maximum Risk
+    max_risk = sorted_cwes[0][1]['risk_score'] if sorted_cwes else 0
+    
+    # Method 4: Composite (top 5 average for critical penalty)
+    top_5 = min(5, len(sorted_cwes))
+    critical_penalty = sum(cwe[1]['risk_score'] for cwe in sorted_cwes[:top_5]) / top_5 if top_5 > 0 else 0
+    
+    composite_risk = (
+        0.4 * critical_penalty +
+        0.3 * weighted_avg_risk +
+        0.3 * max_risk
+    )
+    
+    # Method 5: Vulnerability Density
+    estimated_loc = total_files_with_tp * 200  # Assume 200 lines per file
+    if estimated_loc > 0:
+        weighted_density = total_weighted_risk / estimated_loc
+        density_score = max(0, 100 - (weighted_density * 20))
+    else:
+        density_score = 100
+    
+    # Final Score: 70% composite + 30% density
+    final_score = ((100 - composite_risk) * 0.7) + (density_score * 0.3)
+    final_score = max(0, min(100, final_score))  # Clamp to 0-100
+    
+    # Determine rating
+    if final_score >= 80:
+        rating = 'EXCELLENT'
+        color = 'success'
+    elif final_score >= 60:
+        rating = 'GOOD'
+        color = 'primary'
+    elif final_score >= 40:
+        rating = 'FAIR'
+        color = 'warning'
+    elif final_score >= 20:
+        rating = 'POOR'
+        color = 'danger'
+    else:
+        rating = 'CRITICAL'
+        color = 'danger'
+    
+    # Count CWEs by ACTUAL SEVERITY from JSON (not risk score)
+    # This counts based on the original scanner severity, not calculated risk
+    severity_counts = {
+        'critical': set(),
+        'high': set(),
+        'medium': set(),
+        'low': set()
+    }
+    
+    for cwe_id, cwe_data in scored_cwes.items():
+        severities = [s.upper() for s in cwe_data.get('severities', [])]
+        
+        # Categorize by highest severity present
+        # Semgrep: ERROR=HIGH, WARNING=MEDIUM, INFO=LOW
+        if 'CRITICAL' in severities:
+            severity_counts['critical'].add(cwe_id)
+        elif any(s in ['HIGH', 'ERROR'] for s in severities):
+            severity_counts['high'].add(cwe_id)
+        elif any(s in ['MEDIUM', 'WARNING'] for s in severities):
+            severity_counts['medium'].add(cwe_id)
+        elif any(s in ['LOW', 'INFO'] for s in severities):
+            severity_counts['low'].add(cwe_id)
+    
+    return {
+        'final_score': round(final_score, 2),
+        'rating': rating,
+        'color': color,
+        'components': {
+            'composite_risk': round(composite_risk, 2),
+            'density_score': round(density_score, 2),
+            'critical_penalty': round(critical_penalty, 2),
+            'weighted_avg_risk': round(weighted_avg_risk, 2),
+            'max_risk': round(max_risk, 2),
+            'top_cwe_avg': round(avg_top_risk, 2)
+        },
+        'metrics': {
+            'total_cwes': len(scored_cwes),
+            'critical_cwes': len(severity_counts['critical']),
+            'high_cwes': len(severity_counts['high']),
+            'medium_cwes': len(severity_counts['medium']),
+            'low_cwes': len(severity_counts['low']),
+            'vulnerability_density': round(total_tp / estimated_loc * 1000, 2) if estimated_loc > 0 else 0,
+            'tp_rate': round(total_tp / total_findings * 100, 1) if total_findings > 0 else 0
+        }
+    }
 
 app = Flask(__name__)
 app.secret_key = "change-me"
@@ -177,6 +462,42 @@ def generate_docx_report(project_name, sast_summary, dep_summary, out_path: Path
     doc.save(out_path)
 
 
+def normalize_file_path(file_path, run_number=None):
+    """
+    Normalize file paths to remove run-specific prefixes for accurate unique file counting.
+    
+    Examples:
+    - "run_1/src/main.py" -> "src/main.py"
+    - "/tmp/extract_123/run_2/project/app.py" -> "project/app.py"
+    - "run_3_code/utils.py" -> "utils.py"
+    
+    This ensures the same file across different runs is counted as ONE unique file.
+    """
+    import re
+    
+    if not file_path:
+        return file_path
+    
+    # Remove common run-specific prefixes
+    # Pattern: run_N/, run-N/, runN/, or extract_*/run_N/
+    patterns = [
+        r'^run[_-]?\d+/',  # run_1/, run-1/, run1/
+        r'.*/run[_-]?\d+/',  # /path/to/run_1/
+        r'^extract[_-]?\d+/',  # extract_123/
+        r'.*/extract[_-]?\d+/',  # /tmp/extract_123/
+    ]
+    
+    normalized = file_path
+    for pattern in patterns:
+        normalized = re.sub(pattern, '', normalized)
+    
+    # Also remove leading temp directories
+    normalized = re.sub(r'^/tmp/[^/]+/', '', normalized)
+    normalized = re.sub(r'^temp[_-]?\d*/', '', normalized)
+    
+    return normalized
+
+
 def analyze_json_by_language(json_data):
     """
     Analyze JSON data to group CWEs by language and provide comprehensive statistics
@@ -230,7 +551,12 @@ def analyze_json_by_language(json_data):
                 
                 # Extract data
                 cwe_id = finding.get("cwe", "CWE-UNKNOWN")
-                file_path = finding.get("file", "")
+                raw_file_path = finding.get("file", "")
+                
+                # CRITICAL FIX: Normalize file paths to count unique files correctly
+                # Same file across different runs should count as ONE file, not multiple
+                file_path = normalize_file_path(raw_file_path, run_number)
+                
                 language = get_language_from_file(file_path)
                 severity = finding.get("severity", "UNKNOWN")
                 line = finding.get("line", 0)
@@ -1353,6 +1679,33 @@ def upload_json():
         # Perform language-wise analysis
         ANALYSIS_DATA = analyze_json_by_language(json_data)
         
+        # Calculate risk scores for each CWE
+        print("\n📊 Calculating risk scores...")
+        cwe_risk_scores = calculate_risk_scores(ANALYSIS_DATA, total_runs)
+        ANALYSIS_DATA['risk_scores'] = cwe_risk_scores
+        
+        # Calculate overall model score
+        total_files_with_tp = len(set(
+            file 
+            for lang_data in ANALYSIS_DATA['by_language'].values()
+            for cwe_data in lang_data['cwes'].values()
+            if cwe_data['verdicts'].get('true_positive', 0) > 0
+            for file in cwe_data.get('true_positive_files', [])
+        ))
+        
+        model_score = calculate_model_score(
+            cwe_risk_scores,
+            total_runs,
+            total_sast_findings,
+            sum(cwe['tp_count'] for cwe in cwe_risk_scores.values()),
+            total_files_with_tp
+        )
+        ANALYSIS_DATA['model_score'] = model_score
+        
+        print(f"   Model Security Score: {model_score['final_score']}/100 ({model_score['rating']})")
+        print(f"   CWEs scored: {len(cwe_risk_scores)}")
+        print(f"   Critical CWEs: {model_score['metrics']['critical_cwes']}")
+        
         # Verify no data loss
         analyzed_findings = ANALYSIS_DATA['metadata']['total_findings']
         if analyzed_findings != total_sast_findings:
@@ -1366,7 +1719,8 @@ def upload_json():
             f"✅ Successfully analyzed {ANALYSIS_DATA['metadata']['total_runs']} runs with "
             f"{ANALYSIS_DATA['metadata']['total_findings']} findings! "
             f"Found {ANALYSIS_DATA['metadata']['total_languages']} languages and "
-            f"{ANALYSIS_DATA['metadata']['total_unique_cwes']} unique CWEs."
+            f"{ANALYSIS_DATA['metadata']['total_unique_cwes']} unique CWEs. "
+            f"Model Score: {model_score['final_score']}/100 ({model_score['rating']})"
         )
         
         if missing_data_warnings:
@@ -2202,6 +2556,51 @@ def cleanup_all():
         flash(f"Warning: Some files could not be cleaned: {e}", "warning")
     
     return redirect(url_for("index"))
+
+
+@app.route("/score_calculation")
+def score_calculation():
+    """
+    Show detailed score calculation breakdown for all CWEs
+    """
+    if not ANALYSIS_DATA:
+        flash("No analysis data available. Please upload and analyze a JSON file first.", "warning")
+        return redirect(url_for("index"))
+    
+    return render_template("score_calculation.html", 
+                         analysis=ANALYSIS_DATA,
+                         total_runs=ANALYSIS_DATA['metadata']['total_runs'])
+
+
+@app.route("/cwe_calculation/<cwe_id>")
+def cwe_calculation(cwe_id):
+    """
+    Show detailed calculation for a specific CWE
+    """
+    if not ANALYSIS_DATA or 'risk_scores' not in ANALYSIS_DATA:
+        flash("No scoring data available. Please upload and analyze a JSON file first.", "warning")
+        return redirect(url_for("index"))
+    
+    if cwe_id not in ANALYSIS_DATA['risk_scores']:
+        flash(f"CWE {cwe_id} not found in current analysis.", "warning")
+        return redirect(url_for("analysis_results"))
+    
+    # Get the score data
+    score_data = ANALYSIS_DATA['risk_scores'][cwe_id]
+    
+    # Find the CWE details from language data
+    cwe_details = None
+    for lang, lang_data in ANALYSIS_DATA['by_language'].items():
+        if cwe_id in lang_data['cwes']:
+            cwe_details = lang_data['cwes'][cwe_id]
+            cwe_details['language'] = lang
+            break
+    
+    return render_template("cwe_calculation_detail.html",
+                         cwe_id=cwe_id,
+                         score_data=score_data,
+                         cwe_details=cwe_details,
+                         total_runs=ANALYSIS_DATA['metadata']['total_runs'])
 
 
 if __name__ == "__main__":

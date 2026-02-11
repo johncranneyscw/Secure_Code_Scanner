@@ -1,0 +1,645 @@
+{% extends "base.html" %} {% block content %}
+
+<div class="container mt-4">
+  <!-- Header with Project Name -->
+  <div class="card glass-card shadow-lg border-0 mb-3">
+    <div class="card-body p-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h1 class="h5 text-accent mb-1">📊 CWE Analysis Results</h1>
+          <div class="d-flex align-items-center gap-3 mt-2">
+            <span class="badge bg-primary" style="font-size: 1rem; padding: 0.5rem 1rem;">
+              🤖 Model: {{ analysis.metadata.project }}
+            </span>
+            <span class="text-muted small">
+              Analyzed: {{ analysis.metadata.generated_at }}
+            </span>
+          </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <a href="{{ url_for('score_calculation') }}" class="btn btn-info btn-sm">
+            🔬 Score Calculations
+          </a>
+          <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">
+            ⬅️ Back to Home
+          </a>
+          <a href="{{ url_for('download_language_analysis_json') }}" class="btn btn-primary btn-sm">
+            📥 Download JSON
+          </a>
+          <a href="{{ url_for('download_language_analysis_excel') }}" class="btn btn-success btn-sm">
+            📊 Download Excel
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Card -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0 text-accent">📈 Analysis Summary</h2>
+        <span class="badge" style="background: linear-gradient(90deg, #6366f1, #e879f9); font-size: 0.9rem; padding: 0.5rem 1rem;">
+          {{ analysis.metadata.project }}
+        </span>
+      </div>
+      <div class="row">
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_runs }}</div>
+            <div class="stat-label">Total Runs</div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_languages }}</div>
+            <div class="stat-label">Languages Found</div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_unique_cwes }}</div>
+            <div class="stat-label">Unique CWEs</div>
+          </div>
+        </div>
+        <div class="col-md-3 col-sm-6 mb-3">
+          <div class="stat-card">
+            <div class="stat-value">{{ analysis.metadata.total_findings }}</div>
+            <div class="stat-label">Total Findings</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mt-3">
+        <div class="col-md-6 mb-3">
+          <div class="stat-card bg-success bg-opacity-10">
+            <div class="stat-value text-success">{{ analysis.metadata.true_positives }}</div>
+            <div class="stat-label">True Positives</div>
+          </div>
+        </div>
+        <div class="col-md-6 mb-3">
+          <div class="stat-card bg-danger bg-opacity-10">
+            <div class="stat-value text-danger">{{ analysis.metadata.false_positives }}</div>
+            <div class="stat-label">False Positives</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <h6 class="text-muted mb-2">Languages Detected:</h6>
+        <div class="d-flex flex-wrap gap-2">
+          {% for lang in analysis.metadata.languages %}
+          <span class="badge bg-info text-dark">{{ lang }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODEL SECURITY SCORE SECTION -->
+  {% if analysis.model_score %}
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <h2 class="h5 mb-3 text-accent">🎯 Model Security Score</h2>
+      
+      <!-- Overall Score Display -->
+      <div class="row mb-4">
+        <div class="col-md-4">
+          <div class="text-center p-4 rounded" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1)); border: 2px solid rgba(99, 102, 241, 0.3);">
+            <div style="font-size: 3rem; font-weight: bold; color: #{{ '22c55e' if analysis.model_score.final_score >= 80 else ('3b82f6' if analysis.model_score.final_score >= 60 else ('f59e0b' if analysis.model_score.final_score >= 40 else 'ef4444')) }};">
+              {{ analysis.model_score.final_score }}
+            </div>
+            <div class="text-muted small">out of 100</div>
+            <div class="mt-2">
+              <span class="badge bg-{{ analysis.model_score.color }}" style="font-size: 1rem; padding: 0.5rem 1rem;">
+                {{ analysis.model_score.rating }}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="col-md-8">
+          <div class="alert alert-info mb-0">
+            <h6 class="alert-heading">📊 Score Interpretation</h6>
+            <div class="small">
+              <strong>80-100 (EXCELLENT):</strong> Very few security issues, production-ready<br>
+              <strong>60-79 (GOOD):</strong> Acceptable security with minor issues<br>
+              <strong>40-59 (FAIR):</strong> Moderate security concerns, needs improvement<br>
+              <strong>20-39 (POOR):</strong> Significant security problems, major remediation needed<br>
+              <strong>0-19 (CRITICAL):</strong> Severe security issues, unsuitable for production
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Score Components Breakdown -->
+      <div class="mb-4">
+        <h6 class="text-white mb-3">📈 Score Components</h6>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <div class="card bg-dark">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <span class="text-white">Composite Risk</span>
+                  <span class="badge bg-danger" style="font-size: 1rem;">{{ analysis.model_score.components.composite_risk }}</span>
+                </div>
+                <div class="progress mt-2" style="height: 15px; background-color: rgba(255,255,255,0.1);">
+                  <div class="progress-bar bg-danger" role="progressbar" 
+                       style="width: {{ analysis.model_score.components.composite_risk }}%">
+                    <span class="text-white fw-bold">{{ analysis.model_score.components.composite_risk }}%</span>
+                  </div>
+                </div>
+                <small class="text-muted d-block mt-2">Lower is better • Weight: 70%</small>
+              </div>
+            </div>
+          </div>
+          
+          <div class="col-md-6 mb-3">
+            <div class="card bg-dark">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <span class="text-white">Density Score</span>
+                  <span class="badge bg-success" style="font-size: 1rem;">{{ analysis.model_score.components.density_score }}</span>
+                </div>
+                <div class="progress mt-2" style="height: 15px; background-color: rgba(255,255,255,0.1);">
+                  <div class="progress-bar bg-success" role="progressbar" 
+                       style="width: {{ analysis.model_score.components.density_score }}%">
+                    <span class="text-white fw-bold">{{ analysis.model_score.components.density_score }}%</span>
+                  </div>
+                </div>
+                <small class="text-muted d-block mt-2">Higher is better • Weight: 30%</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key Metrics - FIXED with risk_scores data -->
+      <div class="mb-4">
+        <h6 class="text-white mb-3">📊 Key Metrics</h6>
+        <div class="row">
+          {% set critical_count = analysis.risk_scores.values()|selectattr('risk_level', 'equalto', 'CRITICAL')|list|length %}
+          {% set high_count = analysis.risk_scores.values()|selectattr('risk_level', 'equalto', 'HIGH')|list|length %}
+          {% set medium_count = analysis.risk_scores.values()|selectattr('risk_level', 'equalto', 'MEDIUM')|list|length %}
+          
+          <div class="col-md-3 col-sm-6 mb-2">
+            <div class="stat-card-sm bg-danger bg-opacity-10">
+              <div class="stat-value-sm text-danger">{{ critical_count }}</div>
+              <div class="stat-label-sm text-white">Critical CWEs (≥80)</div>
+            </div>
+          </div>
+          
+          <div class="col-md-3 col-sm-6 mb-2">
+            <div class="stat-card-sm bg-warning bg-opacity-10">
+              <div class="stat-value-sm text-warning">{{ high_count }}</div>
+              <div class="stat-label-sm text-white">High CWEs (60-79)</div>
+            </div>
+          </div>
+          
+          <div class="col-md-3 col-sm-6 mb-2">
+            <div class="stat-card-sm bg-info bg-opacity-10">
+              <div class="stat-value-sm text-info">{{ medium_count }}</div>
+              <div class="stat-label-sm text-white">Medium CWEs (40-59)</div>
+            </div>
+          </div>
+          
+          <div class="col-md-3 col-sm-6 mb-2">
+            <div class="stat-card-sm bg-primary bg-opacity-10">
+              <div class="stat-value-sm text-primary">{{ analysis.model_score.metrics.vulns_per_1000_loc|round(1) }}</div>
+              <div class="stat-label-sm text-white">Vulns per 1000 LOC</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scoring Methodology Collapsible -->
+      <div class="accordion accordion-flush" id="scoringMethodology">
+        <div class="accordion-item bg-dark border-secondary">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed bg-dark text-white" type="button" data-bs-toggle="collapse" data-bs-target="#methodologyCollapse">
+              📈 Scoring Methodology (Click to Expand)
+            </button>
+          </h2>
+          <div id="methodologyCollapse" class="accordion-collapse collapse" data-bs-parent="#scoringMethodology">
+            <div class="accordion-body bg-dark text-light">
+              <div class="alert alert-info">
+                <h6 class="text-info mb-3">Formula:</h6>
+                <code class="text-white d-block mb-3" style="font-size: 1rem;">
+                  Final Score = (100 - Composite Risk) × 0.7 + Density Score × 0.3
+                </code>
+                
+                <h6 class="text-info mt-3 mb-2">Components:</h6>
+                <ul class="small mb-0">
+                  <li><strong>Composite Risk (70%):</strong> Weighted combination of top CWEs, average risk, and max risk</li>
+                  <li><strong>Density Score (30%):</strong> Vulnerabilities per 1000 lines of code (lower is better)</li>
+                </ul>
+              </div>
+
+              <div class="mt-3">
+                <h6 class="text-white">Calculation Breakdown:</h6>
+                <div class="font-monospace small text-light">
+                  <strong>1. Composite Risk:</strong><br>
+                  &nbsp;&nbsp;= 0.4 × Top5_Avg + 0.3 × Weighted_Avg + 0.3 × Max_Risk<br>
+                  &nbsp;&nbsp;= 0.4 × {{ analysis.model_score.components.critical_penalty }} + 
+                     0.3 × {{ analysis.model_score.components.weighted_avg_risk }} + 
+                     0.3 × {{ analysis.model_score.components.max_risk }}<br>
+                  &nbsp;&nbsp;= <strong class="text-danger">{{ analysis.model_score.components.composite_risk }}</strong><br>
+                  
+                  <strong class="mt-2 d-block">2. Security Score:</strong><br>
+                  &nbsp;&nbsp;= 100 - Composite Risk<br>
+                  &nbsp;&nbsp;= 100 - {{ analysis.model_score.components.composite_risk }}<br>
+                  &nbsp;&nbsp;= <strong>{{ (100 - analysis.model_score.components.composite_risk)|round(2) }}</strong><br>
+                  
+                  <strong class="mt-2 d-block">3. Final Score:</strong><br>
+                  &nbsp;&nbsp;= Security Score × 0.7 + Density Score × 0.3<br>
+                  &nbsp;&nbsp;= {{ (100 - analysis.model_score.components.composite_risk)|round(2) }} × 0.7 + 
+                     {{ analysis.model_score.components.density_score }} × 0.3<br>
+                  &nbsp;&nbsp;= <strong class="text-success">{{ analysis.model_score.final_score }}/100</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Language Tabs -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <h2 class="h5 mb-3 text-accent">🔍 CWE Distribution Across All Languages</h2>
+      
+      <div class="mb-4">
+        <h6 class="text-white mb-2">View by Programming Language:</h6>
+        <ul class="nav nav-pills" id="languageTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active view-btn" id="overview-tab" data-bs-toggle="pill" data-bs-target="#overview" type="button" role="tab">
+              📊 Overview
+            </button>
+          </li>
+          {% for lang in analysis.metadata.languages %}
+          <li class="nav-item" role="presentation">
+            <button class="nav-link view-btn" id="{{ lang }}-tab" data-bs-toggle="pill" data-bs-target="#lang-{{ lang }}" type="button" role="tab">
+              {{ lang }}
+            </button>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="tab-content" id="languageTabContent">
+        <!-- Overview Tab -->
+        <div class="tab-pane fade show active" id="overview" role="tabpanel">
+          <div class="alert alert-info">
+            <h6 class="text-info">📌 Quick Stats:</h6>
+            <ul class="mb-0 small">
+              <li><strong>Total Languages:</strong> {{ analysis.metadata.total_languages }}</li>
+              <li><strong>Unique CWEs:</strong> {{ analysis.metadata.total_unique_cwes }}</li>
+              <li><strong>Total Findings:</strong> {{ analysis.metadata.total_findings }} (TP: {{ analysis.metadata.true_positives }}, FP: {{ analysis.metadata.false_positives }})</li>
+            </ul>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-dark table-hover">
+              <thead>
+                <tr>
+                  <th>Language</th>
+                  <th>Unique CWEs</th>
+                  <th>Total Findings</th>
+                  <th>True Positives</th>
+                  <th>False Positives</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for lang, lang_data in analysis.by_language.items() %}
+                <tr>
+                  <td><span class="badge bg-info text-dark">{{ lang }}</span></td>
+                  <td>{{ lang_data.cwes|length }}</td>
+                  <td>{{ lang_data.total_findings }}</td>
+                  <td><span class="badge bg-success">{{ lang_data.true_positives }}</span></td>
+                  <td><span class="badge bg-danger">{{ lang_data.false_positives }}</span></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Individual Language Tabs -->
+        {% for lang, lang_data in analysis.by_language.items() %}
+        <div class="tab-pane fade" id="lang-{{ lang }}" role="tabpanel">
+          <div class="mb-3">
+            <div class="row">
+              <div class="col-md-3">
+                <div class="stat-card-sm">
+                  <div class="stat-value-sm text-info">{{ lang_data.cwes|length }}</div>
+                  <div class="stat-label-sm text-white">Unique CWEs</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="stat-card-sm">
+                  <div class="stat-value-sm text-primary">{{ lang_data.total_findings }}</div>
+                  <div class="stat-label-sm text-white">Total Findings</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="stat-card-sm bg-success bg-opacity-10">
+                  <div class="stat-value-sm text-success">{{ lang_data.true_positives }}</div>
+                  <div class="stat-label-sm text-white">True Positives</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="stat-card-sm bg-danger bg-opacity-10">
+                  <div class="stat-value-sm text-danger">{{ lang_data.false_positives }}</div>
+                  <div class="stat-label-sm text-white">False Positives</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-dark table-hover table-sm">
+              <thead>
+                <tr>
+                  <th>CWE ID</th>
+                  <th>Risk Score</th>
+                  <th>Severity</th>
+                  <th>TP / FP</th>
+                  <th>Files</th>
+                  <th>Runs</th>
+                  <th>Tools</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cwe_id, cwe_info in lang_data.cwes.items() %}
+                <tr class="clickable-row" data-bs-toggle="collapse" data-bs-target="#details-{{ lang }}-{{ cwe_id }}" style="cursor: pointer;">
+                  <td>
+                    <code class="text-info">{{ cwe_id }}</code>
+                    {% if cwe_info.cwe_name %}
+                    <br><small class="text-muted">{{ cwe_info.cwe_name[:50] }}{% if cwe_info.cwe_name|length > 50 %}...{% endif %}</small>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if analysis.risk_scores and cwe_id in analysis.risk_scores %}
+                      <strong class="text-{{ analysis.risk_scores[cwe_id].risk_color }}" style="font-size: 1.1rem;">
+                        {{ analysis.risk_scores[cwe_id].risk_score }}
+                      </strong>
+                      <br>
+                      <span class="badge bg-{{ analysis.risk_scores[cwe_id].risk_color }}">
+                        {{ analysis.risk_scores[cwe_id].risk_level }}
+                      </span>
+                    {% else %}
+                      <span class="text-muted">N/A</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if cwe_info.severities %}
+                      {% for sev in cwe_info.severities %}
+                        <span class="badge bg-sev-{{ sev|lower }}">{{ sev }}</span>
+                      {% endfor %}
+                    {% else %}
+                      <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <span class="badge bg-success">{{ cwe_info.verdicts.true_positive }}</span>
+                    <span class="badge bg-danger">{{ cwe_info.verdicts.false_positive }}</span>
+                  </td>
+                  <td>
+                    <span class="text-white">{{ cwe_info.true_positive_files|length }}</span>
+                  </td>
+                  <td>
+                    <span class="text-white">{{ cwe_info.found_in_runs|length }}/{{ analysis.metadata.total_runs }}</span>
+                  </td>
+                  <td>
+                    {% for tool in cwe_info.tools %}
+                      <span class="badge bg-secondary">{{ tool }}</span>
+                    {% endfor %}
+                  </td>
+                  <td>
+                    <button class="btn btn-sm btn-outline-info">
+                      <span class="expand-icon">▶</span>
+                    </button>
+                  </td>
+                </tr>
+                <tr class="collapse" id="details-{{ lang }}-{{ cwe_id }}">
+                  <td colspan="8" class="bg-dark" style="border-left: 4px solid #6366f1; padding: 1.5rem;">
+                    <div class="p-3">
+                      <h6 class="text-warning mb-3">🔍 {{ cwe_id }} Details</h6>
+                      
+                      {% if cwe_info.cwe_name %}
+                      <div class="mb-3">
+                        <strong class="text-info">CWE Name:</strong>
+                        <p class="text-light mb-0">{{ cwe_info.cwe_name }}</p>
+                      </div>
+                      {% endif %}
+                      
+                      <!-- Risk Score Breakdown -->
+                      {% if analysis.risk_scores and cwe_id in analysis.risk_scores %}
+                      <div class="mb-4 p-3 rounded" style="background-color: rgba(71, 85, 105, 0.3); border: 2px solid rgba(99, 102, 241, 0.4);">
+                        <h6 class="text-warning mb-3">📊 Risk Score Breakdown</h6>
+                        <div class="row">
+                          <div class="col-md-3 text-center">
+                            <div class="mb-2" style="font-size: 2rem; font-weight: bold; color: #{{ 'ef4444' if analysis.risk_scores[cwe_id].risk_score >= 80 else ('f59e0b' if analysis.risk_scores[cwe_id].risk_score >= 60 else ('3b82f6' if analysis.risk_scores[cwe_id].risk_score >= 40 else '6b7280')) }};">
+                              {{ analysis.risk_scores[cwe_id].risk_score }}
+                            </div>
+                            <span class="badge bg-{{ analysis.risk_scores[cwe_id].risk_color }}">{{ analysis.risk_scores[cwe_id].risk_level }}</span>
+                          </div>
+                          <div class="col-md-9">
+                            <table class="table table-sm table-dark table-bordered mb-0">
+                              <thead>
+                                <tr class="table-secondary">
+                                  <th class="text-white">Factor</th>
+                                  <th class="text-white">Value</th>
+                                  <th class="text-white">Meaning</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td class="text-white"><strong>V</strong> (Validation)</td>
+                                  <td><code class="text-warning">{{ analysis.risk_scores[cwe_id].V }}</code></td>
+                                  <td class="text-light"><small>{{ 'Has TPs' if analysis.risk_scores[cwe_id].V == 1 else 'No TPs' }}</small></td>
+                                </tr>
+                                <tr>
+                                  <td class="text-white"><strong>I</strong> (Impact)</td>
+                                  <td><code class="text-warning">{{ analysis.risk_scores[cwe_id].I }}</code></td>
+                                  <td class="text-light"><small>Severity-based impact</small></td>
+                                </tr>
+                                <tr>
+                                  <td class="text-white"><strong>L</strong> (Likelihood)</td>
+                                  <td><code class="text-warning">{{ analysis.risk_scores[cwe_id].L }}</code></td>
+                                  <td class="text-light"><small>{{ (analysis.risk_scores[cwe_id].L * 100)|round|int }}% of runs</small></td>
+                                </tr>
+                                <tr>
+                                  <td class="text-white"><strong>Vol</strong> (Volume)</td>
+                                  <td><code class="text-warning">{{ analysis.risk_scores[cwe_id].Vol }}</code></td>
+                                  <td class="text-light"><small>log₁₀({{ analysis.risk_scores[cwe_id].tp_file_count if 'tp_file_count' in analysis.risk_scores[cwe_id] else '?' }} files + 1)</small></td>
+                                </tr>
+                                <tr>
+                                  <td class="text-white"><strong>C</strong> (Confidence)</td>
+                                  <td><code class="text-warning">{{ analysis.risk_scores[cwe_id].C }}</code></td>
+                                  <td class="text-light"><small>{{ analysis.risk_scores[cwe_id].tools_count }} tool(s)</small></td>
+                                </tr>
+                                <tr class="table-success">
+                                  <td colspan="3" class="text-white">
+                                    <strong>Formula:</strong> 
+                                    <code class="text-info" style="font-size: 0.9rem;">
+                                      {{ analysis.risk_scores[cwe_id].V }} × {{ analysis.risk_scores[cwe_id].I }} × {{ analysis.risk_scores[cwe_id].L }} × {{ analysis.risk_scores[cwe_id].Vol }} × {{ analysis.risk_scores[cwe_id].C }} × 100 = {{ analysis.risk_scores[cwe_id].risk_score }}
+                                    </code>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="mt-2 small text-light">
+                          <strong>TP:</strong> {{ analysis.risk_scores[cwe_id].tp_count }} | 
+                          <strong>FP:</strong> {{ analysis.risk_scores[cwe_id].fp_count }} | 
+                          <strong>Runs:</strong> {{ analysis.risk_scores[cwe_id].runs_count }}/{{ analysis.metadata.total_runs }}
+                        </div>
+                      </div>
+                      {% endif %}
+                      
+                      <h6 class="text-info mb-2">📊 File Count by Run:</h6>
+                      <div class="d-flex flex-wrap gap-2 mb-3">
+                        {% for run_id, count in cwe_info.file_counts_per_run.items() %}
+                        <span class="badge bg-primary">{{ run_id }}: {{ count }} files</span>
+                        {% endfor %}
+                      </div>
+
+                      <h6 class="text-info mb-2">📝 Example Findings:</h6>
+                      {% for example in cwe_info.examples[:3] %}
+                      <div class="alert alert-secondary mb-2" style="background-color: rgba(71, 85, 105, 0.5); border-left: 3px solid #f59e0b;">
+                        <div class="d-flex justify-content-between">
+                          <small class="text-white"><strong>Run {{ example.run }}</strong> - {{ example.scanner }}</small>
+                          <small class="text-info">Line {{ example.line }}</small>
+                        </div>
+                        <div class="font-monospace small text-warning mt-1">{{ example.file }}</div>
+                        <div class="small text-light mt-2" style="background-color: rgba(15, 23, 42, 0.6); padding: 8px; border-radius: 4px;">{{ example.message }}</div>
+                      </div>
+                      {% endfor %}
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .stat-card {
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 0.5rem;
+    text-align: center;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  
+  .stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #a5b4fc;
+  }
+  
+  .stat-label {
+    font-size: 0.875rem;
+    color: #e5e7eb;
+    margin-top: 0.5rem;
+  }
+
+  .stat-card-sm {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 0.375rem;
+    text-align: center;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  
+  .stat-value-sm {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #a5b4fc;
+  }
+  
+  .stat-label-sm {
+    font-size: 0.75rem;
+    color: #e5e7eb;
+    margin-top: 0.25rem;
+  }
+
+  .nav-pills .nav-link {
+    background: rgba(255, 255, 255, 0.05);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .nav-pills .nav-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .nav-pills .nav-link.active {
+    background: linear-gradient(90deg, #6366f1, #e879f9);
+    border-color: #6366f1;
+  }
+
+  .table-dark {
+    --bs-table-bg: rgba(15, 23, 42, 0.5);
+    color: #e5e7eb;
+  }
+
+  .table-dark th {
+    border-bottom: 2px solid rgba(148, 163, 184, 0.3);
+    color: #fff;
+  }
+
+  .table-dark td {
+    color: #e5e7eb;
+  }
+
+  .table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .clickable-row:hover {
+    background-color: rgba(99, 102, 241, 0.1) !important;
+  }
+
+  .expand-icon {
+    display: inline-block;
+    transition: transform 0.2s;
+  }
+
+  .clickable-row[aria-expanded="true"] .expand-icon {
+    transform: rotate(90deg);
+  }
+</style>
+
+<script>
+  // Initialize Bootstrap tooltips
+  document.addEventListener('DOMContentLoaded', function() {
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+
+    // Handle expand icon rotation
+    document.querySelectorAll('.clickable-row').forEach(row => {
+      row.addEventListener('click', function() {
+        const isExpanded = this.getAttribute('aria-expanded') === 'true';
+        this.setAttribute('aria-expanded', !isExpanded);
+      });
+    });
+  });
+</script>
+
+{% endblock %}

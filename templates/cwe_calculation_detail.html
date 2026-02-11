@@ -1,0 +1,238 @@
+{% extends "base.html" %} {% block content %}
+
+<div class="container mt-4">
+  <!-- Header -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h1 class="h4 text-accent mb-2">🔬 {{ cwe_id }} Risk Score Calculation</h1>
+          {% if cwe_details %}
+          <p class="text-muted small mb-0">{{ cwe_details.cwe_name }}</p>
+          {% endif %}
+        </div>
+        <div>
+          <a href="{{ url_for('score_calculation') }}" class="btn btn-outline-light btn-sm me-2">
+            ⬅️ Back to Calculations
+          </a>
+          <a href="{{ url_for('analysis_results') }}" class="btn btn-outline-light btn-sm">
+            📊 Analysis
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Final Score Display -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4 text-center">
+      <h2 class="text-muted mb-2">Risk Score</h2>
+      <div style="font-size: 4rem; font-weight: bold; color: #{{ 'ef4444' if score_data.risk_score >= 80 else ('f59e0b' if score_data.risk_score >= 60 else ('3b82f6' if score_data.risk_score >= 40 else '6b7280')) }};">
+        {{ score_data.risk_score }}
+      </div>
+      <span class="badge bg-{{ score_data.risk_color }}" style="font-size: 1.5rem; padding: 0.5rem 1.5rem;">
+        {{ score_data.risk_level }}
+      </span>
+    </div>
+  </div>
+
+  <!-- Step-by-Step Calculation -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <h2 class="h5 text-warning mb-4">📐 Step-by-Step Calculation</h2>
+
+      <!-- Formula -->
+      <div class="alert alert-dark border border-info mb-4">
+        <h6 class="text-info mb-3">Formula:</h6>
+        <code class="text-light" style="font-size: 1.1rem;">
+          Risk Score = V × I × L × Vol × C × 100
+        </code>
+        <div class="mt-3">
+          <code class="text-light" style="font-size: 1.1rem;">
+            = {{ score_data.V }} × {{ score_data.I }} × {{ score_data.L }} × {{ score_data.Vol }} × {{ score_data.C }} × 100
+          </code>
+        </div>
+        <div class="mt-2">
+          <code class="text-success" style="font-size: 1.2rem;">
+            = {{ score_data.risk_score }}
+          </code>
+          {% if score_data.risk_score > 100 %}
+            <span class="text-muted">(capped at 100)</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Individual Factors -->
+      <div class="row">
+        <!-- V Factor -->
+        <div class="col-md-6 mb-3">
+          <div class="card bg-dark border-success">
+            <div class="card-body">
+              <h6 class="text-success">V (Validation Switch)</h6>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-light">Value:</span>
+                <strong style="font-size: 1.5rem;">{{ score_data.V }}</strong>
+              </div>
+              <hr class="border-secondary">
+              <div class="small text-muted">
+                <strong>Meaning:</strong> {{ "Has True Positives" if score_data.V == 1 else "No True Positives" }}<br>
+                <strong>Logic:</strong> 1 if TP_count > 0, else 0<br>
+                <strong>TP Count:</strong> {{ score_data.tp_count }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- I Factor -->
+        <div class="col-md-6 mb-3">
+          <div class="card bg-dark border-danger">
+            <div class="card-body">
+              <h6 class="text-danger">I (Impact)</h6>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-light">Value:</span>
+                <strong style="font-size: 1.5rem;">{{ score_data.I }}</strong>
+              </div>
+              <hr class="border-secondary">
+              <div class="small text-muted">
+                <strong>Severity:</strong> 
+                {% if score_data.severities %}
+                  {% for sev in score_data.severities %}
+                    <span class="badge bg-secondary">{{ sev }}</span>
+                  {% endfor %}
+                {% else %}
+                  N/A
+                {% endif %}
+                <br>
+                <strong>Mapping:</strong><br>
+                CRITICAL=1.0, HIGH/ERROR=0.8,<br>
+                MEDIUM/WARNING=0.6, LOW/INFO=0.4<br>
+                <strong>Used:</strong> Max severity if multiple
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- L Factor -->
+        <div class="col-md-6 mb-3">
+          <div class="card bg-dark border-warning">
+            <div class="card-body">
+              <h6 class="text-warning">L (Likelihood)</h6>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-light">Value:</span>
+                <strong style="font-size: 1.5rem;">{{ score_data.L }}</strong>
+              </div>
+              <hr class="border-secondary">
+              <div class="small text-muted">
+                <strong>Formula:</strong> runs_with_TP / total_runs<br>
+                <strong>Calculation:</strong> {{ score_data.runs_count }} / {{ total_runs }} = {{ score_data.L }}<br>
+                <strong>Meaning:</strong> Found in {{ (score_data.L * 100)|round|int }}% of runs<br>
+                <strong>Runs:</strong> {{ score_data.runs|join(', ') if score_data.runs else 'N/A' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vol Factor -->
+        <div class="col-md-6 mb-3">
+          <div class="card bg-dark border-info">
+            <div class="card-body">
+              <h6 class="text-info">Vol (Volume)</h6>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-light">Value:</span>
+                <strong style="font-size: 1.5rem;">{{ score_data.Vol }}</strong>
+              </div>
+              <hr class="border-secondary">
+              <div class="small text-muted">
+                <strong>Formula:</strong> log₁₀(TP_file_count + 1)<br>
+                <strong>Calculation:</strong> log₁₀({{ score_data.tp_file_count }} + 1) = {{ score_data.Vol }}<br>
+                <strong>TP Files:</strong> {{ score_data.tp_file_count }} files affected<br>
+                <strong>TP Instances:</strong> {{ score_data.tp_count }} total<br>
+                <strong>Note:</strong> Uses files, not instances
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- C Factor -->
+        <div class="col-md-6 mb-3">
+          <div class="card bg-dark border-primary">
+            <div class="card-body">
+              <h6 class="text-primary">C (Confidence)</h6>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-light">Value:</span>
+                <strong style="font-size: 1.5rem;">{{ score_data.C }}</strong>
+              </div>
+              <hr class="border-secondary">
+              <div class="small text-muted">
+                <strong>Tools:</strong> {{ score_data.tools_count }} 
+                ({{ score_data.tools|join(', ') if score_data.tools else 'N/A' }})<br>
+                <strong>Mapping:</strong><br>
+                1 tool = 0.7,  2 tools = 0.85,  3+ tools = 1.0<br>
+                <strong>Rationale:</strong> Cross-tool validation increases confidence
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="col-md-6 mb-3">
+          <div class="card bg-dark border-light">
+            <div class="card-body">
+              <h6 class="text-light">📊 Summary Statistics</h6>
+              <hr class="border-secondary">
+              <div class="small">
+                <div class="d-flex justify-content-between mb-2">
+                  <span>True Positives:</span>
+                  <strong class="text-success">{{ score_data.tp_count }}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                  <span>False Positives:</span>
+                  <strong class="text-danger">{{ score_data.fp_count }}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                  <span>Files Affected:</span>
+                  <strong class="text-info">{{ score_data.tp_file_count }}</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                  <span>Runs Found:</span>
+                  <strong class="text-warning">{{ score_data.runs_count }}/{{ total_runs }}</strong>
+                </div>
+                <div class="d-flex justify-content-between">
+                  <span>Tools Detected:</span>
+                  <strong class="text-primary">{{ score_data.tools_count }}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calculation Verification -->
+  <div class="card glass-card shadow-lg border-0 mb-4">
+    <div class="card-body p-4">
+      <h2 class="h5 text-success mb-3">✅ Manual Verification</h2>
+      <div class="alert alert-dark border border-success">
+        <p class="mb-2"><strong>You can verify this calculation manually:</strong></p>
+        <div class="font-monospace small">
+          1. V = {{ score_data.V }} ({{ "Has TPs" if score_data.V == 1 else "No TPs" }})<br>
+          2. I = {{ score_data.I }} (Severity: {{ score_data.severities|join(', ') if score_data.severities else 'N/A' }})<br>
+          3. L = {{ score_data.runs_count }} ÷ {{ total_runs }} = {{ score_data.L }}<br>
+          4. Vol = log₁₀({{ score_data.tp_file_count }} + 1) = {{ score_data.Vol }}<br>
+          5. C = {{ score_data.C }} ({{ score_data.tools_count }} tool{{ 's' if score_data.tools_count != 1 else '' }})<br>
+          <br>
+          Final: {{ score_data.V }} × {{ score_data.I }} × {{ score_data.L }} × {{ score_data.Vol }} × {{ score_data.C }} × 100<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= {{ (score_data.V * score_data.I * score_data.L * score_data.Vol * score_data.C * 100)|round(2) }}
+          {% if (score_data.V * score_data.I * score_data.L * score_data.Vol * score_data.C * 100) > 100 %}
+            → capped at 100
+          {% endif %}<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <strong class="text-success">{{ score_data.risk_score }}</strong> ✅
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
