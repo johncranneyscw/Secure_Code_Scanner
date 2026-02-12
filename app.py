@@ -316,6 +316,9 @@ ALL_RUNS = []  # List of dicts, each containing results for one run
 # Store analysis results from JSON
 ANALYSIS_DATA = None
 
+# Store AI decision data indexed by stable_id
+DECISIONS_DATA = {}  # stable_id -> decision dict
+
 # Progress tracking
 progress_queues = {}  # scan_id -> Queue for progress updates
 
@@ -622,16 +625,28 @@ def analyze_json_by_language(json_data):
                 # Use (run, line) as key to deduplicate scanner reports on same line
                 detail_key = (run_number, line)
                 
+                # Get stableId for linking to AI decisions
+                stable_id = finding.get("stableId", "")
+                
                 # Store the finding (deduplicates automatically since we use dict)
                 if verdict == "true_positive":
                     if detail_key not in cwe_entry["file_verdict_by_run"][file_path]["true_positive_details"]:
-                        cwe_entry["file_verdict_by_run"][file_path]["true_positive_details"][detail_key] = scanner
+                        cwe_entry["file_verdict_by_run"][file_path]["true_positive_details"][detail_key] = {
+                            "scanner": scanner,
+                            "stable_id": stable_id
+                        }
                 elif verdict == "false_positive":
                     if detail_key not in cwe_entry["file_verdict_by_run"][file_path]["false_positive_details"]:
-                        cwe_entry["file_verdict_by_run"][file_path]["false_positive_details"][detail_key] = scanner
+                        cwe_entry["file_verdict_by_run"][file_path]["false_positive_details"][detail_key] = {
+                            "scanner": scanner,
+                            "stable_id": stable_id
+                        }
                 else:
                     if detail_key not in cwe_entry["file_verdict_by_run"][file_path]["unknown_details"]:
-                        cwe_entry["file_verdict_by_run"][file_path]["unknown_details"][detail_key] = scanner
+                        cwe_entry["file_verdict_by_run"][file_path]["unknown_details"][detail_key] = {
+                            "scanner": scanner,
+                            "stable_id": stable_id
+                        }
                 
                 cwe_entry["verdicts"][verdict] = cwe_entry["verdicts"].get(verdict, 0) + 1
                 cwe_entry["severities"].add(severity)
@@ -720,22 +735,22 @@ def analyze_json_by_language(json_data):
                 for file_path, verdicts in cwe_entry["file_verdict_by_run"].items():
                     # Convert TP dict to list
                     tp_list = [
-                        {"run": run, "line": line, "scanner": scanner}
-                        for (run, line), scanner in verdicts["true_positive_details"].items()
+                        {"run": run, "line": line, "scanner": info["scanner"], "stable_id": info.get("stable_id", "")}
+                        for (run, line), info in verdicts["true_positive_details"].items()
                     ]
                     verdicts["true_positive_details"] = sorted(tp_list, key=lambda x: (x["run"], x["line"]))
                     
                     # Convert FP dict to list
                     fp_list = [
-                        {"run": run, "line": line, "scanner": scanner}
-                        for (run, line), scanner in verdicts["false_positive_details"].items()
+                        {"run": run, "line": line, "scanner": info["scanner"], "stable_id": info.get("stable_id", "")}
+                        for (run, line), info in verdicts["false_positive_details"].items()
                     ]
                     verdicts["false_positive_details"] = sorted(fp_list, key=lambda x: (x["run"], x["line"]))
                     
                     # Convert unknown dict to list
                     unknown_list = [
-                        {"run": run, "line": line, "scanner": scanner}
-                        for (run, line), scanner in verdicts["unknown_details"].items()
+                        {"run": run, "line": line, "scanner": info["scanner"], "stable_id": info.get("stable_id", "")}
+                        for (run, line), info in verdicts["unknown_details"].items()
                     ]
                     verdicts["unknown_details"] = sorted(unknown_list, key=lambda x: (x["run"], x["line"]))
             
@@ -1580,8 +1595,8 @@ def scan_progress(scan_id):
 
 @app.route("/upload_json", methods=["POST"])
 def upload_json():
-    """Upload and analyze a results JSON file"""
-    global ANALYSIS_DATA
+    """Upload and analyze a results JSON file, optionally with decisions JSON"""
+    global ANALYSIS_DATA, DECISIONS_DATA
     
     if "results_json" not in request.files:
         flash("No JSON file uploaded", "warning")
@@ -1596,6 +1611,48 @@ def upload_json():
     if not allowed_json_file(file.filename):
         flash("Invalid file type. Please upload a .json file", "danger")
         return redirect(url_for("index"))
+    
+    # Handle decisions JSON upload (optional)
+    decisions_file = request.files.get("decisions_json")
+    if decisions_file and decisions_file.filename and allowed_json_file(decisions_file.filename):
+        try:
+            DECISIONS_DATA = {}
+            content = decisions_file.read().decode('utf-8')
+            # Try JSONL format first (one JSON object per line)
+            for line in content.strip().split('\n'):
+                line = line.strip()
+                if line:
+                    try:
+                        decision = json.loads(line)
+                        stable_id = decision.get('stable_id')
+                        if stable_id:
+                            DECISIONS_DATA[stable_id] = decision
+                    except json.JSONDecodeError:
+                        pass
+            
+            # If JSONL parsing found nothing, try as regular JSON array
+            if not DECISIONS_DATA:
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, list):
+                        for decision in data:
+                            stable_id = decision.get('stable_id')
+                            if stable_id:
+                                DECISIONS_DATA[stable_id] = decision
+                    elif isinstance(data, dict) and 'decisions' in data:
+                        for decision in data['decisions']:
+                            stable_id = decision.get('stable_id')
+                            if stable_id:
+                                DECISIONS_DATA[stable_id] = decision
+                except json.JSONDecodeError:
+                    pass
+            
+            print(f"✅ Loaded {len(DECISIONS_DATA)} AI decisions")
+        except Exception as e:
+            print(f"⚠️ Could not parse decisions JSON: {e}")
+            DECISIONS_DATA = {}
+    else:
+        DECISIONS_DATA = {}
     
     try:
         # Read and parse JSON
@@ -1723,6 +1780,9 @@ def upload_json():
             f"Model Score: {model_score['final_score']}/100 ({model_score['rating']})"
         )
         
+        if DECISIONS_DATA:
+            success_msg += f" | 🤖 {len(DECISIONS_DATA)} AI decisions loaded"
+        
         if missing_data_warnings:
             success_msg += f" ({len(missing_data_warnings)} data warnings - check console for details)"
         
@@ -1749,7 +1809,7 @@ def analysis_results():
         flash("No analysis data available. Please upload a JSON file first.", "warning")
         return redirect(url_for("index"))
     
-    return render_template("analysis_results.html", analysis=ANALYSIS_DATA)
+    return render_template("analysis_results.html", analysis=ANALYSIS_DATA, has_decisions=bool(DECISIONS_DATA))
 
 
 @app.route("/download_language_analysis_json")
@@ -2601,6 +2661,43 @@ def cwe_calculation(cwe_id):
                          score_data=score_data,
                          cwe_details=cwe_details,
                          total_runs=ANALYSIS_DATA['metadata']['total_runs'])
+
+
+@app.route("/api/decision/<stable_id>")
+def get_decision(stable_id):
+    """API endpoint to get AI decision data by stable_id"""
+    global DECISIONS_DATA
+    
+    if not DECISIONS_DATA:
+        return json.dumps({"error": "No decisions data loaded"}), 404, {'Content-Type': 'application/json'}
+    
+    decision = DECISIONS_DATA.get(stable_id)
+    if not decision:
+        return json.dumps({"error": f"Decision not found for stable_id: {stable_id}"}), 404, {'Content-Type': 'application/json'}
+    
+    # Return only the fields needed for the modal (exclude raw_response and prompt to save bandwidth)
+    safe_decision = {
+        "stable_id": decision.get("stable_id", ""),
+        "verdict": decision.get("verdict", ""),
+        "confidence": decision.get("confidence", ""),
+        "file_relevance": decision.get("file_relevance", ""),
+        "file_relevance_reason": decision.get("file_relevance_reason", ""),
+        "justification": decision.get("justification", ""),
+        "recommended_fix": decision.get("recommended_fix", ""),
+        "evidence": decision.get("evidence", []),
+        "decision_trace": decision.get("decision_trace", []),
+        "scanner": decision.get("scanner", ""),
+        "rule_id": decision.get("rule_id", ""),
+        "cwe": decision.get("cwe", ""),
+        "severity": decision.get("severity", ""),
+        "file": decision.get("file", ""),
+        "line": decision.get("line", ""),
+        "message": decision.get("message", ""),
+        "project": decision.get("project", ""),
+        "run_number": decision.get("run_number", ""),
+    }
+    
+    return json.dumps(safe_decision), 200, {'Content-Type': 'application/json'}
 
 
 if __name__ == "__main__":

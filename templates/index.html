@@ -137,7 +137,7 @@
         <form id="json-upload-form" action="{{ url_for('upload_json') }}" method="post" enctype="multipart/form-data">
           <div class="mb-3">
             <label for="results_json" class="form-label">
-              Select Results JSON File
+              Select Results JSON File (Verdicted)
             </label>
             <input
               class="form-control"
@@ -148,7 +148,24 @@
               required
             />
             <div class="form-text">
-              Upload a JSON file containing scan results from multiple runs
+              Upload a JSON file containing scan results with verdicts from multiple runs
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label for="decisions_json" class="form-label">
+              Select Decisions JSON File <span class="badge bg-info text-dark">Optional</span>
+            </label>
+            <input
+              class="form-control"
+              type="file"
+              id="decisions_json"
+              name="decisions_json"
+              accept=".json"
+            />
+            <div class="form-text">
+              Upload the AI decisions JSONL file to see <strong>why</strong> each finding was classified as TP/FP.
+              Enables clickable verdict badges with detailed AI reasoning.
             </div>
           </div>
 

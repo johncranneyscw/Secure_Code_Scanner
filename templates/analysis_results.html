@@ -14,6 +14,11 @@
             <span class="text-muted small">
               Analyzed: {{ analysis.metadata.generated_at }}
             </span>
+            {% if has_decisions %}
+            <span class="badge bg-info" style="font-size: 0.8rem;">
+              🤖 AI Decisions Loaded — Click badges for reasoning
+            </span>
+            {% endif %}
           </div>
         </div>
         <div class="d-flex gap-2 flex-wrap">
@@ -690,8 +695,14 @@
                                     {% if file_verdicts.true_positive_details %}
                                     <div class="mb-1">
                                       {% for detail in file_verdicts.true_positive_details %}
-                                      <span class="badge bg-success me-1 mb-1" style="font-size: 0.7rem;">
-                                        ✅ Run {{ detail.run }}: Line {{ detail.line }}
+                                      <span class="badge bg-success me-1 mb-1 {% if has_decisions and detail.stable_id %}decision-badge{% endif %}" 
+                                            style="font-size: 0.7rem; {% if has_decisions and detail.stable_id %}cursor: pointer;{% endif %}"
+                                            {% if has_decisions and detail.stable_id %}
+                                            data-stable-id="{{ detail.stable_id }}"
+                                            onclick="showDecisionModal('{{ detail.stable_id }}')"
+                                            title="🤖 Click to see AI reasoning"
+                                            {% endif %}>
+                                        ✅ Run {{ detail.run }}: Line {{ detail.line }} {% if has_decisions and detail.stable_id %}🔍{% endif %}
                                       </span>
                                       {% endfor %}
                                     </div>
@@ -700,8 +711,14 @@
                                     {% if file_verdicts.false_positive_details %}
                                     <div>
                                       {% for detail in file_verdicts.false_positive_details %}
-                                      <span class="badge bg-danger me-1 mb-1" style="font-size: 0.7rem;">
-                                        ❌ Run {{ detail.run }}: Line {{ detail.line }}
+                                      <span class="badge bg-danger me-1 mb-1 {% if has_decisions and detail.stable_id %}decision-badge{% endif %}" 
+                                            style="font-size: 0.7rem; {% if has_decisions and detail.stable_id %}cursor: pointer;{% endif %}"
+                                            {% if has_decisions and detail.stable_id %}
+                                            data-stable-id="{{ detail.stable_id }}"
+                                            onclick="showDecisionModal('{{ detail.stable_id }}')"
+                                            title="🤖 Click to see AI reasoning"
+                                            {% endif %}>
+                                        ❌ Run {{ detail.run }}: Line {{ detail.line }} {% if has_decisions and detail.stable_id %}🔍{% endif %}
                                       </span>
                                       {% endfor %}
                                     </div>
@@ -735,8 +752,14 @@
                                     {% if file_verdicts.true_positive_details %}
                                     <div class="mb-1">
                                       {% for detail in file_verdicts.true_positive_details %}
-                                      <span class="badge bg-success me-1 mb-1" style="font-size: 0.7rem;">
-                                        ✅ Run {{ detail.run }}: Line {{ detail.line }}
+                                      <span class="badge bg-success me-1 mb-1 {% if has_decisions and detail.stable_id %}decision-badge{% endif %}" 
+                                            style="font-size: 0.7rem; {% if has_decisions and detail.stable_id %}cursor: pointer;{% endif %}"
+                                            {% if has_decisions and detail.stable_id %}
+                                            data-stable-id="{{ detail.stable_id }}"
+                                            onclick="showDecisionModal('{{ detail.stable_id }}')"
+                                            title="🤖 Click to see AI reasoning"
+                                            {% endif %}>
+                                        ✅ Run {{ detail.run }}: Line {{ detail.line }} {% if has_decisions and detail.stable_id %}🔍{% endif %}
                                       </span>
                                       {% endfor %}
                                     </div>
@@ -745,8 +768,14 @@
                                     {% if file_verdicts.false_positive_details %}
                                     <div>
                                       {% for detail in file_verdicts.false_positive_details %}
-                                      <span class="badge bg-danger me-1 mb-1" style="font-size: 0.7rem;">
-                                        ❌ Run {{ detail.run }}: Line {{ detail.line }}
+                                      <span class="badge bg-danger me-1 mb-1 {% if has_decisions and detail.stable_id %}decision-badge{% endif %}" 
+                                            style="font-size: 0.7rem; {% if has_decisions and detail.stable_id %}cursor: pointer;{% endif %}"
+                                            {% if has_decisions and detail.stable_id %}
+                                            data-stable-id="{{ detail.stable_id }}"
+                                            onclick="showDecisionModal('{{ detail.stable_id }}')"
+                                            title="🤖 Click to see AI reasoning"
+                                            {% endif %}>
+                                        ❌ Run {{ detail.run }}: Line {{ detail.line }} {% if has_decisions and detail.stable_id %}🔍{% endif %}
                                       </span>
                                       {% endfor %}
                                     </div>
@@ -779,8 +808,14 @@
                                     {% if file_verdicts.unknown_details %}
                                     <div>
                                       {% for detail in file_verdicts.unknown_details %}
-                                      <span class="badge bg-warning text-dark me-1 mb-1" style="font-size: 0.7rem;">
-                                        ⚠️ Run {{ detail.run }}: Line {{ detail.line }}
+                                      <span class="badge bg-warning text-dark me-1 mb-1 {% if has_decisions and detail.stable_id %}decision-badge{% endif %}" 
+                                            style="font-size: 0.7rem; {% if has_decisions and detail.stable_id %}cursor: pointer;{% endif %}"
+                                            {% if has_decisions and detail.stable_id %}
+                                            data-stable-id="{{ detail.stable_id }}"
+                                            onclick="showDecisionModal('{{ detail.stable_id }}')"
+                                            title="🤖 Click to see AI reasoning"
+                                            {% endif %}>
+                                        ⚠️ Run {{ detail.run }}: Line {{ detail.line }} {% if has_decisions and detail.stable_id %}🔍{% endif %}
                                       </span>
                                       {% endfor %}
                                     </div>
@@ -970,7 +1005,57 @@
   .table-hover tbody tr:hover {
     background-color: rgba(255, 255, 255, 0.05);
   }
+
+  /* Decision badge hover effect */
+  .decision-badge {
+    transition: all 0.2s ease;
+    position: relative;
+  }
+  
+  .decision-badge:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.5);
+    z-index: 10;
+  }
+  
+  .decision-badge::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    border: 1px solid rgba(99, 102, 241, 0);
+    transition: border-color 0.2s ease;
+  }
+  
+  .decision-badge:hover::after {
+    border-color: rgba(99, 102, 241, 0.6);
+  }
 </style>
+
+<!-- AI Decision Modal -->
+{% if has_decisions %}
+<div class="modal fade" id="decisionModal" tabindex="-1" aria-labelledby="decisionModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content" style="background-color: #0f172a; border: 1px solid rgba(148, 163, 184, 0.3);">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(148, 163, 184, 0.2);">
+        <h5 class="modal-title text-accent" id="decisionModalLabel">
+          🤖 AI Decision Reasoning
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="decisionModalBody" style="color: #e2e8f0;">
+        <div class="text-center py-5">
+          <div class="spinner-border text-info" role="status"></div>
+          <div class="text-muted mt-2">Loading decision data...</div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid rgba(148, 163, 184, 0.2);">
+        <button type="button" class="btn btn-outline-light btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <script>
   // Initialize Bootstrap tooltips
@@ -980,6 +1065,189 @@
       return new bootstrap.Tooltip(tooltipTriggerEl);
     });
   });
+
+  {% if has_decisions %}
+  // Decision modal logic
+  function showDecisionModal(stableId) {
+    const modal = new bootstrap.Modal(document.getElementById('decisionModal'));
+    const body = document.getElementById('decisionModalBody');
+    
+    // Show loading
+    body.innerHTML = `
+      <div class="text-center py-5">
+        <div class="spinner-border text-info" role="status"></div>
+        <div class="text-muted mt-2">Loading decision data...</div>
+      </div>
+    `;
+    modal.show();
+    
+    // Fetch decision data
+    fetch('/api/decision/' + stableId)
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          body.innerHTML = `
+            <div class="alert alert-danger">
+              <strong>Error:</strong> ${data.error}
+            </div>
+          `;
+          return;
+        }
+        
+        // Build the modal content
+        const verdictColor = data.verdict === 'true_positive' ? '#22c55e' : '#ef4444';
+        const verdictIcon = data.verdict === 'true_positive' ? '✅' : '❌';
+        const verdictLabel = data.verdict === 'true_positive' ? 'TRUE POSITIVE' : 'FALSE POSITIVE';
+        const confidenceColor = data.confidence === 'high' ? '#22c55e' : (data.confidence === 'medium' ? '#f59e0b' : '#94a3b8');
+        
+        let html = `
+          <!-- Verdict Header -->
+          <div class="text-center mb-4 p-3 rounded" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1)); border: 2px solid ${verdictColor}40;">
+            <div style="font-size: 2.5rem;">${verdictIcon}</div>
+            <div style="font-size: 1.5rem; font-weight: bold; color: ${verdictColor};">${verdictLabel}</div>
+            <div class="mt-2">
+              <span class="badge" style="background-color: ${confidenceColor}; font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+                Confidence: ${data.confidence.toUpperCase()}
+              </span>
+              <span class="badge bg-secondary ms-2" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+                ${data.scanner} • ${data.cwe}
+              </span>
+            </div>
+          </div>
+          
+          <!-- Finding Details -->
+          <div class="card mb-3" style="background-color: #1e293b; border: 1px solid rgba(148, 163, 184, 0.2);">
+            <div class="card-body">
+              <h6 class="text-info mb-3">📋 Finding Details</h6>
+              <div class="row">
+                <div class="col-md-6 mb-2">
+                  <small class="text-muted">File:</small>
+                  <div class="font-monospace small text-warning">${data.file}</div>
+                </div>
+                <div class="col-md-2 mb-2">
+                  <small class="text-muted">Line:</small>
+                  <div class="text-light">${data.line}</div>
+                </div>
+                <div class="col-md-2 mb-2">
+                  <small class="text-muted">Run:</small>
+                  <div class="text-light">${data.run_number}</div>
+                </div>
+                <div class="col-md-2 mb-2">
+                  <small class="text-muted">Severity:</small>
+                  <div><span class="badge bg-warning text-dark">${data.severity}</span></div>
+                </div>
+              </div>
+              <div class="mt-2">
+                <small class="text-muted">Rule:</small>
+                <div class="font-monospace small text-light" style="word-break: break-all;">${data.rule_id}</div>
+              </div>
+              <div class="mt-2">
+                <small class="text-muted">Scanner Message:</small>
+                <div class="small text-light p-2 rounded" style="background-color: #0f172a;">${data.message}</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- AI Justification -->
+          <div class="card mb-3" style="background-color: #1e293b; border: 2px solid ${verdictColor}30;">
+            <div class="card-body">
+              <h6 style="color: ${verdictColor};">🧠 AI Justification</h6>
+              <div class="text-light" style="line-height: 1.7;">${data.justification}</div>
+            </div>
+          </div>
+          
+          <!-- File Relevance -->
+          <div class="card mb-3" style="background-color: #1e293b; border: 1px solid rgba(148, 163, 184, 0.2);">
+            <div class="card-body">
+              <h6 class="text-info">📁 File Relevance</h6>
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="badge ${data.file_relevance === 'relevant' ? 'bg-success' : 'bg-warning text-dark'}">
+                  ${data.file_relevance.toUpperCase()}
+                </span>
+              </div>
+              <div class="small text-light">${data.file_relevance_reason}</div>
+            </div>
+          </div>`;
+        
+        // Recommended Fix (if not 'none')
+        if (data.recommended_fix && data.recommended_fix !== 'none') {
+          html += `
+          <div class="card mb-3" style="background-color: #1e293b; border: 1px solid #22c55e30;">
+            <div class="card-body">
+              <h6 class="text-success">🔧 Recommended Fix</h6>
+              <pre class="text-light small mb-0 p-2 rounded" style="background-color: #0f172a; white-space: pre-wrap; word-break: break-word;">${data.recommended_fix}</pre>
+            </div>
+          </div>`;
+        }
+        
+        // Decision Trace (Step-by-step reasoning)
+        if (data.decision_trace && data.decision_trace.length > 0) {
+          html += `
+          <div class="card mb-3" style="background-color: #1e293b; border: 1px solid rgba(148, 163, 184, 0.2);">
+            <div class="card-body">
+              <h6 class="text-warning">🔍 Decision Trace (Step-by-Step)</h6>
+              <div class="decision-trace">`;
+          
+          data.decision_trace.forEach((step, idx) => {
+            html += `
+                <div class="d-flex mb-2 align-items-start">
+                  <span class="badge bg-primary me-2 mt-1" style="min-width: 28px; font-size: 0.75rem;">${idx + 1}</span>
+                  <div class="small text-light" style="line-height: 1.6;">${step}</div>
+                </div>`;
+          });
+          
+          html += `
+              </div>
+            </div>
+          </div>`;
+        }
+        
+        // Evidence (Code snippets)
+        if (data.evidence && data.evidence.length > 0) {
+          html += `
+          <div class="card mb-3" style="background-color: #1e293b; border: 1px solid rgba(148, 163, 184, 0.2);">
+            <div class="card-body">
+              <h6 class="text-accent">📄 Evidence (Code Reviewed)</h6>`;
+          
+          data.evidence.forEach((ev) => {
+            html += `
+              <div class="mb-3 p-2 rounded" style="background-color: #0f172a; border-left: 3px solid #6366f1;">
+                <div class="d-flex justify-content-between mb-1">
+                  <small class="text-warning font-monospace">${ev.path}</small>
+                  <small class="text-muted">Lines: ${ev.lines}</small>
+                </div>
+                <pre class="mb-0 small" style="color: #94a3b8; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;">${escapeHtml(ev.quote)}</pre>
+              </div>`;
+          });
+          
+          html += `
+            </div>
+          </div>`;
+        }
+        
+        // Stable ID footer
+        html += `
+          <div class="text-end">
+            <small class="text-muted font-monospace" style="font-size: 0.65rem;">stable_id: ${data.stable_id}</small>
+          </div>`;
+        
+        body.innerHTML = html;
+      })
+      .catch(error => {
+        body.innerHTML = `
+          <div class="alert alert-danger">
+            <strong>Error loading decision:</strong> ${error.message}
+          </div>
+        `;
+      });
+  }
+  
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  {% endif %}
 </script>
 
 {% endblock %}
