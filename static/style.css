@@ -7,152 +7,236 @@ body {
   background: radial-gradient(circle at top left, #4f46e5, #111827);
 }
 
+/* ── HIGH CONTRAST TEXT SYSTEM ────────────────────────────── */
+/* Accent: bright enough to pop on dark backgrounds */
 .text-accent {
-  color: #a5b4fc;
+  color: #c4b5fd !important;
 }
 
+/* Override Bootstrap text-muted to be more visible */
+.text-muted {
+  color: #a1a1aa !important;
+}
+
+/* All headings in dark context should be bright */
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+  color: #f1f5f9;
+}
+
+/* Body text on dark */
+.bg-dark, body.bg-dark {
+  color: #e2e8f0;
+}
+
+/* Paragraphs and labels */
+p, label, .form-label, .form-text, li {
+  color: #cbd5e1;
+}
+
+/* Strong / bold text always bright */
+strong, b {
+  color: #f1f5f9;
+}
+
+/* Small text slightly dimmer but still readable */
+small {
+  color: #a1a1aa;
+}
+
+/* Links */
+a:not(.btn) {
+  color: #93c5fd;
+}
+a:not(.btn):hover {
+  color: #bfdbfe;
+}
+
+/* Code blocks */
+code {
+  font-size: 0.8rem;
+  color: #c4b5fd;
+}
+
+/* ── BUTTONS ──────────────────────────────────────────────── */
 .btn-accent {
   background: linear-gradient(90deg, #6366f1, #e879f9);
   border: none;
   color: #fff;
   font-weight: 600;
 }
-
 .btn-accent:hover {
   opacity: 0.92;
+  color: #fff;
 }
 
+/* ── CARDS ────────────────────────────────────────────────── */
 .glass-card {
   background: rgba(15, 23, 42, 0.92);
   border-radius: 1rem;
   border: 1px solid rgba(148, 163, 184, 0.35);
   backdrop-filter: blur(16px);
+  color: #e2e8f0;
 }
 
-/* Severity badges */
-.bg-sev-critical,
-.bg-outline-sev-critical {
-  background-color: #b91c1c !important;
+.glass-card .card-body {
+  color: #e2e8f0;
 }
 
-.bg-sev-high,
-.bg-outline-sev-high {
-  background-color: #dc2626 !important;
-}
-
-.bg-sev-medium,
-.bg-outline-sev-medium {
-  background-color: #f97316 !important;
-}
-
-.bg-sev-low,
-.bg-outline-sev-low {
-  background-color: #22c55e !important;
-}
-
-.bg-sev-info,
-.bg-outline-sev-info {
-  background-color: #0ea5e9 !important;
-}
-
-.bg-sev-unknown,
-.bg-outline-sev-unknown {
-  background-color: #6b7280 !important;
-}
+/* ── SEVERITY BADGES ──────────────────────────────────────── */
+.bg-sev-critical, .bg-outline-sev-critical { background-color: #b91c1c !important; }
+.bg-sev-high, .bg-outline-sev-high { background-color: #dc2626 !important; }
+.bg-sev-medium, .bg-outline-sev-medium { background-color: #f97316 !important; }
+.bg-sev-low, .bg-outline-sev-low { background-color: #22c55e !important; }
+.bg-sev-info, .bg-outline-sev-info { background-color: #0ea5e9 !important; }
+.bg-sev-unknown, .bg-outline-sev-unknown { background-color: #6b7280 !important; }
+.bg-sev-error, .bg-outline-sev-error { background-color: #dc2626 !important; }
+.bg-sev-warning, .bg-outline-sev-warning { background-color: #f97316 !important; }
 
 .bg-outline {
   background-color: transparent;
   border: 1px solid rgba(148, 163, 184, 0.6);
 }
 
-/* Active view button */
+/* Ensure ALL badges have white text */
+.badge {
+  color: #ffffff !important;
+}
+.badge.bg-light { color: #000000 !important; background-color: #f8f9fa !important; }
+.badge.bg-warning { color: #000000 !important; }
+
+/* ── VIEW BUTTONS ─────────────────────────────────────────── */
 .view-btn.active {
   background-color: #6366f1 !important;
   border-color: #6366f1 !important;
   color: #fff !important;
 }
 
-code {
-  font-size: 0.8rem;
-}
-
-/* Ensure all badges have white text for visibility */
-.badge {
-  color: #ffffff !important;
-}
-
-/* Special handling for light-colored badges */
-.badge.bg-light {
-  color: #000000 !important;
-  background-color: #f8f9fa !important;
-}
-
-.badge.bg-warning {
-  color: #000000 !important;
-}
-
-/* Fix for dark background text visibility */
-.card.bg-dark .text-light,
-.card.bg-dark strong,
-.card.bg-dark .stat-value {
-  color: #f1f5f9 !important;
-}
-
-.card.bg-dark .text-muted {
-  color: #94a3b8 !important;
-}
-
-/* Ensure text in factor cards is visible */
-.card.bg-dark .card-body strong {
-  font-size: 1.5rem;
-  color: #ffffff !important;
-}
-
-.card.bg-dark .card-body span.text-light {
+/* ── TABLES ───────────────────────────────────────────────── */
+.table-dark td, .table-dark th {
   color: #e2e8f0 !important;
 }
-
-/* Fix for calculation detail cards */
-.alert.alert-dark {
-  background-color: #1e293b;
-  border-color: #334155;
-  color: #f1f5f9;
+.table-dark code {
+  color: #c4b5fd;
+}
+.table-dark thead th {
+  color: #cbd5e1 !important;
+  font-weight: 600;
 }
 
-.alert.alert-dark code {
-  color: #f1f5f9;
-  background-color: #0f172a;
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.25rem;
-}
-
-/* Stat cards */
-.stat-card {
+/* ── STAT CARDS ───────────────────────────────────────────── */
+.stat-card, .stat-card-sm {
   background: rgba(30, 41, 59, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.2);
   padding: 1rem;
   border-radius: 0.5rem;
   text-align: center;
 }
-
-.stat-value {
+.stat-value, .stat-value-sm {
   font-size: 2rem;
   font-weight: bold;
   color: #f1f5f9 !important;
 }
-
-.stat-label {
+.stat-value-sm { font-size: 1.5rem; }
+.stat-label, .stat-label-sm {
   font-size: 0.875rem;
-  color: #94a3b8 !important;
+  color: #a1a1aa !important;
   margin-top: 0.25rem;
 }
+.stat-label-sm { font-size: 0.75rem; }
 
-/* Fix for font colors in calculation tables */
-.table-dark td,
-.table-dark th {
+/* ── ALERTS ───────────────────────────────────────────────── */
+.alert-dark {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+.alert-dark code {
+  color: #f1f5f9;
+  background-color: #0f172a;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+}
+.alert-info {
+  color: #e0f2fe !important;
+  background-color: rgba(14, 165, 233, 0.12) !important;
+  border-color: rgba(14, 165, 233, 0.25) !important;
+}
+.alert-info strong { color: #ffffff !important; }
+.alert-info li, .alert-info code { color: #e0f2fe !important; }
+.alert-success {
+  color: #dcfce7 !important;
+  background-color: rgba(34, 197, 94, 0.12) !important;
+  border-color: rgba(34, 197, 94, 0.25) !important;
+}
+.alert-warning {
+  color: #fef3c7 !important;
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+.alert-danger {
+  color: #fecaca !important;
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+
+/* ── CARD BG-DARK OVERRIDES ───────────────────────────────── */
+.card.bg-dark .text-light, .card.bg-dark strong, .card.bg-dark .stat-value {
+  color: #f1f5f9 !important;
+}
+.card.bg-dark .card-body strong {
+  font-size: 1.5rem;
+  color: #ffffff !important;
+}
+.card.bg-dark .card-body span.text-light {
   color: #e2e8f0 !important;
 }
 
-.table-dark code {
-  color: #a5b4fc;
+/* ── FORM CONTROLS ON DARK ────────────────────────────────── */
+.form-control, .form-select {
+  background-color: #1e293b;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+.form-control:focus, .form-select:focus {
+  background-color: #1e293b;
+  border-color: #6366f1;
+  color: #f1f5f9;
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.25);
+}
+.form-control::placeholder { color: #64748b; }
+.form-text { color: #94a3b8 !important; }
+
+/* ── NAV TABS (language tabs) ─────────────────────────────── */
+.nav-tabs .nav-link {
+  color: #94a3b8;
+  border-color: transparent;
+}
+.nav-tabs .nav-link:hover {
+  color: #e2e8f0;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.nav-tabs .nav-link.active {
+  color: #f1f5f9;
+  background-color: rgba(99, 102, 241, 0.15);
+  border-color: #6366f1;
+}
+
+/* ── FOOTER ───────────────────────────────────────────────── */
+footer {
+  color: #64748b !important;
+}
+
+/* ── ACCORDION / COLLAPSE SECTIONS ────────────────────────── */
+.accordion-button {
+  background-color: #1e293b;
+  color: #e2e8f0;
+}
+.accordion-button:not(.collapsed) {
+  background-color: rgba(99, 102, 241, 0.1);
+  color: #c4b5fd;
+}
+.accordion-body {
+  background-color: #0f172a;
+  color: #e2e8f0;
 }

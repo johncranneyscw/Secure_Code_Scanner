@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+  .comp-header { background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.06)); border: 1px solid rgba(99,102,241,0.18); border-radius: 14px; }
+  .card-panel { background: rgba(30,41,59,0.75); border: 1px solid rgba(148,163,184,0.1); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .lang-pill { display: inline-block; font-size: 0.78rem; padding: 5px 14px; border-radius: 20px; border: 1px solid rgba(148,163,184,0.25); background: transparent; color: #a1a1aa; cursor: pointer; transition: all 0.2s; margin: 2px; }
+  .lang-pill:hover { border-color: #6366f1; color: #e2e8f0; }
+  .lang-pill.active { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+  .kpi-card { text-align: center; padding: 14px 10px; background: rgba(15,23,42,0.5); border-radius: 10px; border: 1px solid rgba(148,163,184,0.08); }
+  .kpi-val { font-size: 1.7rem; font-weight: 800; line-height: 1.1; }
+  .kpi-label { font-size: 0.7rem; color: #a1a1aa; margin-top: 4px; }
+  .kpi-sub { font-size: 0.65rem; color: #94a3b8; }
+  .chart-wrap { position: relative; width: 100%; }
+  .section-title { font-size: 0.95rem; font-weight: 700; color: #e2e8f0; margin-bottom: 12px; }
+  .formula-box { background: rgba(15,23,42,0.6); border: 1px solid rgba(99,102,241,0.15); border-radius: 8px; padding: 10px 14px; font-family: 'Courier New', monospace; font-size: 0.78rem; color: #e2e8f0; margin-bottom: 10px; }
+  .formula-box .v { color: #c4b5fd; font-weight: 600; }
+  .formula-box .n { color: #4ade80; }
+  .formula-box .o { color: #94a3b8; }
+  .metric-explain { font-size: 0.72rem; color: #a1a1aa; line-height: 1.5; margin-top: 4px; }
+  .pct-block { text-align: center; padding: 12px 8px; flex: 1; min-width: 80px; background: rgba(15,23,42,0.4); border-radius: 8px; }
+  .rank-medal { font-size: 1.2rem; font-weight: 800; min-width: 30px; display: inline-block; text-align: center; }
+  .rank-1 { color: #fbbf24; } .rank-2 { color: #cbd5e1; } .rank-3 { color: #d97706; }
+  #error-banner { display: none; }
+  .expand-btn { cursor: pointer; user-select: none; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; color: #a1a1aa; }
+  .expand-btn:hover { background: rgba(99,102,241,0.15); color: #e2e8f0; }
+</style>
+
+<div class="container-fluid px-lg-4 py-3">
+  <div class="alert alert-danger" id="error-banner" role="alert"><strong>Error:</strong> <span id="error-msg"></span></div>
+
+  <!-- Header -->
+  <div class="comp-header p-3 px-4 mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h1 class="h5 mb-0" style="color:#c4b5fd;">📊 Model Comparison Dashboard</h1>
+        <small style="color:#a1a1aa;">{{ all_models|length }} models — All metrics derived from scan data, no constants</small>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('model_select') }}" class="btn btn-outline-light btn-sm">⬅️ Models</a>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">🏠 Home</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Language Filter -->
+  <div class="card-panel py-2 px-3">
+    <div class="d-flex align-items-center gap-1 flex-wrap">
+      <small style="color:#a1a1aa;" class="me-2">🌐 Language:</small>
+      <span class="lang-pill active" onclick="selectLang('all', this)">All</span>
+      {% for lang in all_languages %}
+      <span class="lang-pill" onclick="selectLang('{{ lang }}', this)">{{ lang }}</span>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- KPI Row -->
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-md col-lg"><div class="kpi-card"><div class="kpi-val text-info" id="kpi-models">-</div><div class="kpi-label">Models</div></div></div>
+    <div class="col-6 col-md col-lg"><div class="kpi-card"><div class="kpi-val" style="color:#22c55e;" id="kpi-best-risk">-</div><div class="kpi-label">Lowest Σ Risk</div><div class="kpi-sub" id="kpi-best-name"></div></div></div>
+    <div class="col-6 col-md col-lg"><div class="kpi-card"><div class="kpi-val" style="color:#f59e0b;" id="kpi-median-risk">-</div><div class="kpi-label">Median Σ Risk</div></div></div>
+    <div class="col-6 col-md col-lg"><div class="kpi-card"><div class="kpi-val" style="color:#ef4444;" id="kpi-worst-risk">-</div><div class="kpi-label">Highest Σ Risk</div><div class="kpi-sub" id="kpi-worst-name"></div></div></div>
+    <div class="col-6 col-md col-lg"><div class="kpi-card"><div class="kpi-val" style="color:#c4b5fd;" id="kpi-total-cwes">-</div><div class="kpi-label">Avg CWEs/Model</div></div></div>
+  </div>
+
+  <!-- How Risk Score Works -->
+  <div class="card-panel">
+    <div class="section-title">🧮 How CWE Risk Scores Are Calculated</div>
+    <div class="formula-box">
+      <span class="v">CWE Risk Score</span> <span class="o">=</span> <span class="v">V</span> <span class="o">×</span> <span class="v">I</span> <span class="o">×</span> <span class="v">L</span> <span class="o">×</span> <span class="v">Vol</span> <span class="o">×</span> <span class="v">C</span> <span class="o">× 100</span> <span class="o">(capped at 100)</span>
+    </div>
+    <div class="row g-2" style="font-size:0.78rem;">
+      <div class="col-md-4 col-lg">
+        <div style="padding:8px 10px;background:rgba(15,23,42,0.4);border-radius:6px;border-left:3px solid #6366f1;">
+          <strong style="color:#818cf8;">V</strong> <span style="color:#a1a1aa;">= Validation</span><br>
+          <small style="color:#cbd5e1;">1 if any TP exists, 0 otherwise. Kills the score entirely if no true positive found.</small>
+        </div>
+      </div>
+      <div class="col-md-4 col-lg">
+        <div style="padding:8px 10px;background:rgba(15,23,42,0.4);border-radius:6px;border-left:3px solid #f59e0b;">
+          <strong style="color:#fbbf24;">I</strong> <span style="color:#a1a1aa;">= Impact (Severity)</span><br>
+          <small style="color:#cbd5e1;">CRITICAL=1.0, HIGH/ERROR=0.8, MEDIUM/WARNING=0.6, LOW/INFO=0.4</small>
+        </div>
+      </div>
+      <div class="col-md-4 col-lg">
+        <div style="padding:8px 10px;background:rgba(15,23,42,0.4);border-radius:6px;border-left:3px solid #22c55e;">
+          <strong style="color:#4ade80;">L</strong> <span style="color:#a1a1aa;">= Likelihood</span><br>
+          <small style="color:#cbd5e1;">Runs with TP / Total runs. e.g. 7/10 = 0.7</small>
+        </div>
+      </div>
+      <div class="col-md-4 col-lg">
+        <div style="padding:8px 10px;background:rgba(15,23,42,0.4);border-radius:6px;border-left:3px solid #06b6d4;">
+          <strong style="color:#22d3ee;">Vol</strong> <span style="color:#a1a1aa;">= Volume (Spread)</span><br>
+          <small style="color:#cbd5e1;">log₁₀(TP_file_count + 1). Measures how many files are affected.</small>
+        </div>
+      </div>
+      <div class="col-md-4 col-lg">
+        <div style="padding:8px 10px;background:rgba(15,23,42,0.4);border-radius:6px;border-left:3px solid #e879f9;">
+          <strong style="color:#e879f9;">C</strong> <span style="color:#a1a1aa;">= Confidence</span><br>
+          <small style="color:#cbd5e1;">1 tool=0.7, 2 tools=0.85, 3+ tools=1.0</small>
+        </div>
+      </div>
+    </div>
+    <div class="metric-explain mt-3" style="border-top:1px solid rgba(148,163,184,0.1);padding-top:10px;">
+      <strong style="color:#e2e8f0;">Aggregation metrics shown below</strong> are all derived from these per-CWE risk scores:<br>
+      <strong style="color:#818cf8;">Σ Risk</strong> = sum of all CWE scores &nbsp;|&nbsp;
+      <strong style="color:#ef4444;">Σ Risk²</strong> = sum of squared scores (amplifies severe CWEs) &nbsp;|&nbsp;
+      <strong style="color:#f59e0b;">RMS</strong> = √(Σ Risk² / N) &nbsp;|&nbsp;
+      <strong style="color:#22c55e;">Σ √Risk</strong> = sum of square-rooted scores (dampens outliers) &nbsp;|&nbsp;
+      <strong style="color:#e879f9;">Geo Mean</strong> = geometric mean of scores
+    </div>
+  </div>
+
+  <!-- Chart Row 1: Σ Risk + Σ Risk² -->
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="card-panel">
+      <div class="section-title">📏 Σ Risk (Sum of CWE Scores) <small style="color:#a1a1aa;font-weight:400;">— lower = more secure</small></div>
+      <div class="chart-wrap" id="wrap-sumrisk" style="height:50px;"><canvas id="chartSumRisk"></canvas></div>
+    </div></div>
+    <div class="col-lg-6"><div class="card-panel">
+      <div class="section-title">📐 Σ Risk² (Sum of Squares) <small style="color:#a1a1aa;font-weight:400;">— amplifies high-severity CWEs</small></div>
+      <div class="chart-wrap" id="wrap-sumsq" style="height:50px;"><canvas id="chartSumSq"></canvas></div>
+    </div></div>
+  </div>
+
+  <!-- Chart Row 2: Multi-metric + Scatter -->
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="card-panel">
+      <div class="section-title">📊 Multi-Metric Comparison</div>
+      <div class="chart-wrap" style="height:340px;"><canvas id="chartMulti"></canvas></div>
+    </div></div>
+    <div class="col-lg-6"><div class="card-panel">
+      <div class="section-title">🔬 CWE Count vs Σ Risk</div>
+      <div class="chart-wrap" style="height:340px;"><canvas id="chartScatter"></canvas></div>
+    </div></div>
+  </div>
+
+  <!-- Chart Row 3: TP/FP + Radar -->
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="card-panel">
+      <div class="section-title">🔴 True Positives vs False Positives</div>
+      <div class="chart-wrap" id="wrap-tpfp" style="height:50px;"><canvas id="chartTpFp"></canvas></div>
+    </div></div>
+    <div class="col-lg-6"><div class="card-panel">
+      <div class="section-title">🕸️ Risk Profile Radar <small style="color:#a1a1aa;font-weight:400;">— normalised to worst model</small></div>
+      <div class="chart-wrap" style="height:340px;"><canvas id="chartRadar"></canvas></div>
+    </div></div>
+  </div>
+
+  <!-- Per-Model Calculation Details -->
+  <div class="card-panel">
+    <div class="section-title">📝 Per-Model Metric Breakdown</div>
+    <div id="calc-details"></div>
+  </div>
+
+  <!-- Rankings Table -->
+  <div class="card-panel">
+    <div class="section-title">📋 Full Comparison Table <small style="color:#a1a1aa;font-weight:400;">— sorted by Σ Risk² ascending (most secure first)</small></div>
+    <div class="table-responsive">
+      <table class="table table-dark table-sm table-hover align-middle mb-0" style="font-size:0.8rem;">
+        <thead>
+          <tr style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;color:#a1a1aa;">
+            <th>#</th><th>Model</th><th class="text-center">CWEs</th>
+            <th class="text-center" style="color:#818cf8;">Σ Risk</th>
+            <th class="text-center" style="color:#ef4444;">Σ Risk²</th>
+            <th class="text-center" style="color:#f59e0b;">RMS</th>
+            <th class="text-center" style="color:#22c55e;">Σ √Risk</th>
+            <th class="text-center" style="color:#e879f9;">Geo Mean</th>
+            <th class="text-center">Max Risk</th><th class="text-center">Avg Risk</th>
+            <th class="text-center">TP</th><th class="text-center">FP</th><th class="text-center">TP Rate</th>
+            <th class="text-center">Systematic</th><th class="text-center">Saturation</th>
+          </tr>
+        </thead>
+        <tbody id="tbl-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Percentiles on Σ Risk -->
+  <div class="card-panel">
+    <div class="section-title">📈 Σ Risk Percentile Thresholds <small style="color:#a1a1aa;font-weight:400;">— lower = more secure</small></div>
+    <div class="d-flex gap-2 flex-wrap justify-content-center" id="pct-row"><div style="color:#a1a1aa;" class="py-2">Loading...</div></div>
+  </div>
+</div>
+
+<script>
+var COLORS = ['#6366f1','#ef4444','#22c55e','#f59e0b','#06b6d4','#e879f9','#fb923c','#84cc16','#f43f5e','#0ea5e9','#a78bfa','#14b8a6','#fbbf24','#f87171','#38bdf8'];
+var charts = {};
+var DATA = null;
+
+function col(i){ return COLORS[i%COLORS.length]; }
+
+function selectLang(lang, el){
+  var pills=document.querySelectorAll('.lang-pill');
+  for(var i=0;i<pills.length;i++) pills[i].classList.remove('active');
+  el.classList.add('active');
+  fetchData(lang);
+}
+
+function fetchData(lang){
+  var xhr=new XMLHttpRequest();
+  xhr.open('GET','/api/comparison_data?language='+encodeURIComponent(lang));
+  xhr.onload=function(){
+    if(xhr.status===200){
+      try{
+        DATA=JSON.parse(xhr.responseText);
+        if(!DATA.models||DATA.models.length===0){showError('No data for selected language.');return;}
+        hideError(); render();
+      }catch(e){showError('Parse error: '+e.message);}
+    }else{showError('HTTP '+xhr.status);}
+  };
+  xhr.onerror=function(){showError('Network error');};
+  xhr.send();
+}
+function showError(m){document.getElementById('error-banner').style.display='block';document.getElementById('error-msg').textContent=m;}
+function hideError(){document.getElementById('error-banner').style.display='none';}
+
+function destroyChart(name){if(charts[name]){charts[name].destroy();charts[name]=null;}}
+
+function render(){
+  var M=DATA.models, P=DATA.percentiles||{};
+
+  // KPIs
+  document.getElementById('kpi-models').textContent=M.length;
+  // M is sorted by sum_of_squares asc, so first = best
+  document.getElementById('kpi-best-risk').textContent=M[0].sum_risk;
+  document.getElementById('kpi-best-name').textContent=M[0].name;
+  document.getElementById('kpi-worst-risk').textContent=M[M.length-1].sum_risk;
+  document.getElementById('kpi-worst-name').textContent=M[M.length-1].name;
+  document.getElementById('kpi-median-risk').textContent=(P.p50!=null)?P.p50:'-';
+  var avgCwes=0; for(var i=0;i<M.length;i++) avgCwes+=M[i].num_cwes;
+  document.getElementById('kpi-total-cwes').textContent=(avgCwes/M.length).toFixed(1);
+
+  drawHBar('chartSumRisk','wrap-sumrisk',M,'sum_risk','Σ Risk','#6366f1',false);
+  drawHBar('chartSumSq','wrap-sumsq',M,'sum_of_squares','Σ Risk²','#ef4444',false);
+  drawTpFp(M);
+  drawMulti(M);
+  drawScatter(M);
+  drawRadar(M);
+  fillTable(M);
+  fillCalcDetails(M);
+  fillPercentiles(P);
+}
+
+// ── HORIZONTAL BAR (generic) ─────────────────────────────────
+function drawHBar(canvasId, wrapId, M, field, label, color, descSort){
+  destroyChart(canvasId);
+  var S=M.slice().sort(function(a,b){ return descSort ? b[field]-a[field] : a[field]-b[field]; });
+  var h=Math.max(220,S.length*48+50);
+  document.getElementById(wrapId).style.height=h+'px';
+  var labels=[],vals=[];
+  for(var i=0;i<S.length;i++){labels.push(S[i].name);vals.push(S[i][field]);}
+  charts[canvasId]=new Chart(document.getElementById(canvasId),{
+    type:'bar',
+    data:{labels:labels,datasets:[{label:label,data:vals,backgroundColor:color+'88',borderColor:color,borderWidth:1.5,borderRadius:5,barPercentage:0.65}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:{duration:500},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){var m=S[c.dataIndex];return label+': '+m[field]+'  |  CWEs: '+m.num_cwes+'  |  TP: '+m.total_tp;}}}},
+      scales:{x:{grid:{color:'rgba(148,163,184,0.08)'},ticks:{color:'#a1a1aa',font:{size:10}}},y:{grid:{display:false},ticks:{color:'#e2e8f0',font:{size:11}}}}}
+  });
+}
+
+// ── TP/FP ────────────────────────────────────────────────────
+function drawTpFp(M){
+  destroyChart('chartTpFp');
+  var S=M.slice().sort(function(a,b){return(b.total_tp+b.total_fp)-(a.total_tp+a.total_fp);});
+  var h=Math.max(220,S.length*48+50);
+  document.getElementById('wrap-tpfp').style.height=h+'px';
+  var labels=[],tps=[],fps=[];
+  for(var i=0;i<S.length;i++){labels.push(S[i].name);tps.push(S[i].total_tp);fps.push(S[i].total_fp);}
+  charts['chartTpFp']=new Chart(document.getElementById('chartTpFp'),{
+    type:'bar',data:{labels:labels,datasets:[
+      {label:'True Positives',data:tps,backgroundColor:'#ef4444bb',borderColor:'#ef4444',borderWidth:1,borderRadius:3},
+      {label:'False Positives',data:fps,backgroundColor:'#475569bb',borderColor:'#64748b',borderWidth:1,borderRadius:3}
+    ]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:{duration:500},
+      plugins:{legend:{position:'top',labels:{color:'#a1a1aa',font:{size:10},boxWidth:10}}},
+      scales:{x:{stacked:true,grid:{color:'rgba(148,163,184,0.08)'},ticks:{color:'#a1a1aa',font:{size:10}}},y:{stacked:true,grid:{display:false},ticks:{color:'#e2e8f0',font:{size:11}}}}}
+  });
+}
+
+// ── MULTI-METRIC GROUPED BAR ─────────────────────────────────
+function drawMulti(M){
+  destroyChart('chartMulti');
+  var labels=[];for(var i=0;i<M.length;i++)labels.push(M[i].name);
+  charts['chartMulti']=new Chart(document.getElementById('chartMulti'),{
+    type:'bar',data:{labels:labels,datasets:[
+      {label:'Σ Risk',data:M.map(function(m){return m.sum_risk;}),backgroundColor:'#6366f1aa',borderColor:'#6366f1',borderWidth:1,borderRadius:3},
+      {label:'Σ √Risk',data:M.map(function(m){return m.sum_sqrt;}),backgroundColor:'#22c55eaa',borderColor:'#22c55e',borderWidth:1,borderRadius:3},
+      {label:'RMS',data:M.map(function(m){return m.rms;}),backgroundColor:'#f59e0baa',borderColor:'#f59e0b',borderWidth:1,borderRadius:3},
+      {label:'Max Risk',data:M.map(function(m){return m.max_risk;}),backgroundColor:'#ef4444aa',borderColor:'#ef4444',borderWidth:1,borderRadius:3}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:500},
+      plugins:{legend:{position:'top',labels:{color:'#a1a1aa',font:{size:9},boxWidth:10,padding:8}}},
+      scales:{x:{grid:{display:false},ticks:{color:'#e2e8f0',font:{size:10}}},y:{grid:{color:'rgba(148,163,184,0.08)'},ticks:{color:'#a1a1aa',font:{size:10}}}}}
+  });
+}
+
+// ── SCATTER: CWEs vs Σ Risk ──────────────────────────────────
+function drawScatter(M){
+  destroyChart('chartScatter');
+  var ds=[];
+  for(var i=0;i<M.length;i++)ds.push({label:M[i].name,data:[{x:M[i].num_cwes,y:M[i].sum_risk}],backgroundColor:col(i)+'cc',borderColor:col(i),borderWidth:2,pointRadius:9,pointHoverRadius:12});
+  charts['chartScatter']=new Chart(document.getElementById('chartScatter'),{
+    type:'scatter',data:{datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:500},
+      plugins:{legend:{position:'bottom',labels:{color:'#a1a1aa',font:{size:9},boxWidth:10,padding:6}},tooltip:{callbacks:{label:function(c){var m=M[c.datasetIndex];return m.name+': Σ Risk='+m.sum_risk+', '+m.num_cwes+' CWEs';}}}},
+      scales:{x:{title:{display:true,text:'Unique CWEs (TP)',color:'#a1a1aa',font:{size:11}},grid:{color:'rgba(148,163,184,0.08)'},ticks:{color:'#a1a1aa'}},y:{title:{display:true,text:'Σ Risk',color:'#a1a1aa',font:{size:11}},grid:{color:'rgba(148,163,184,0.08)'},ticks:{color:'#a1a1aa'}}}}
+  });
+}
+
+// ── RADAR: normalised to worst model ─────────────────────────
+function drawRadar(M){
+  destroyChart('chartRadar');
+  // Normalise each metric to 0-100 relative to worst (max) value
+  var maxSR=0,maxSQ=0,maxCWE=0,maxTP=0,maxSys=0;
+  for(var i=0;i<M.length;i++){
+    if(M[i].sum_risk>maxSR)maxSR=M[i].sum_risk;
+    if(M[i].sum_of_squares>maxSQ)maxSQ=M[i].sum_of_squares;
+    if(M[i].num_cwes>maxCWE)maxCWE=M[i].num_cwes;
+    if(M[i].total_tp>maxTP)maxTP=M[i].total_tp;
+    if(M[i].systematic_cwes>maxSys)maxSys=M[i].systematic_cwes;
+  }
+  function norm(v,mx){return mx>0?Math.round(v/mx*100):0;}
+  var ds=[];
+  for(var i=0;i<M.length;i++){
+    ds.push({label:M[i].name,data:[
+      norm(M[i].sum_risk,maxSR),norm(M[i].sum_of_squares,maxSQ),norm(M[i].num_cwes,maxCWE),
+      norm(M[i].total_tp,maxTP),norm(M[i].systematic_cwes,maxSys)
+    ],backgroundColor:col(i)+'18',borderColor:col(i),borderWidth:2,pointBackgroundColor:col(i),pointRadius:3});
+  }
+  charts['chartRadar']=new Chart(document.getElementById('chartRadar'),{
+    type:'radar',data:{labels:['Σ Risk','Σ Risk²','CWE Count','Total TP','Systematic'],datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:500},
+      plugins:{legend:{position:'bottom',labels:{color:'#a1a1aa',font:{size:9},boxWidth:10,padding:6}}},
+      scales:{r:{beginAtZero:true,max:100,grid:{color:'rgba(148,163,184,0.12)'},angleLines:{color:'rgba(148,163,184,0.12)'},pointLabels:{color:'#e2e8f0',font:{size:10}},ticks:{color:'#64748b',backdropColor:'transparent',stepSize:25,font:{size:9}}}}}
+  });
+}
+
+// ── PER-MODEL DETAILS ────────────────────────────────────────
+function fillCalcDetails(M){
+  var el=document.getElementById('calc-details');
+  var html='';
+  for(var i=0;i<M.length;i++){
+    var m=M[i];
+    var scores=m.calc.scores_list||[];
+    var scStr=scores.slice(0,10).join(', ');
+    if(scores.length>10) scStr+=' ... ('+scores.length+' total)';
+    if(scores.length===0) scStr='(no CWEs with TP)';
+
+    html+='<div class="card-panel" style="padding:12px 16px;margin-bottom:8px;border-left:3px solid '+col(i)+';">';
+    html+='<div class="d-flex justify-content-between align-items-center">';
+    html+='<div><strong style="color:#e2e8f0;">'+m.name+'</strong> <span style="color:#a1a1aa;font-size:0.8rem;margin-left:8px;">'+m.num_cwes+' CWEs | '+m.total_runs+' runs</span></div>';
+    html+='<span class="expand-btn" onclick="toggleCalc('+i+')">▼ Details</span>';
+    html+='</div>';
+    html+='<div id="calc-expand-'+i+'" style="display:none;margin-top:10px;">';
+
+    // CWE scores
+    html+='<div style="margin-bottom:8px;"><small style="color:#a1a1aa;">CWE risk scores (desc): </small><code style="font-size:0.73rem;">'+scStr+'</code></div>';
+
+    // Metrics table
+    html+='<div class="table-responsive"><table class="table table-dark table-sm mb-0" style="font-size:0.78rem;">';
+    html+='<tr><td style="color:#a1a1aa;width:140px;">Σ Risk</td><td style="color:#818cf8;font-weight:600;">'+m.sum_risk+'</td><td style="color:#94a3b8;">Sum of all CWE risk scores</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Σ Risk²</td><td style="color:#ef4444;font-weight:600;">'+m.sum_of_squares+'</td><td style="color:#94a3b8;">'+scores.slice(0,3).map(function(s){return s.toFixed(1)+'² = '+(s*s).toFixed(1);}).join(' + ')+(scores.length>3?' + ...':'')+'</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">RMS</td><td style="color:#f59e0b;font-weight:600;">'+m.rms+'</td><td style="color:#94a3b8;">√('+m.sum_of_squares+' / '+m.num_cwes+') = '+m.rms+'</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Σ √Risk</td><td style="color:#22c55e;font-weight:600;">'+m.sum_sqrt+'</td><td style="color:#94a3b8;">Sum of √ of each score (dampens outliers)</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Geo Mean</td><td style="color:#e879f9;font-weight:600;">'+m.geometric_mean+'</td><td style="color:#94a3b8;">Geometric mean of CWE scores</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Max Risk</td><td style="color:#e2e8f0;font-weight:600;">'+m.max_risk+'</td><td style="color:#94a3b8;">Highest single CWE score</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Avg Risk</td><td style="color:#e2e8f0;font-weight:600;">'+m.avg_risk+'</td><td style="color:#94a3b8;">'+m.sum_risk+' / '+m.num_cwes+'</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Systematic</td><td style="color:#e2e8f0;font-weight:600;">'+m.systematic_cwes+' / '+m.num_cwes+'</td><td style="color:#94a3b8;">CWEs appearing in &gt;50% of runs (ratio: '+m.systematic_ratio+')</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">Saturation</td><td style="color:#e2e8f0;font-weight:600;">'+m.runs_with_tp+' / '+m.total_runs+'</td><td style="color:#94a3b8;">Runs with at least 1 TP ('+m.saturation+')</td></tr>';
+    html+='<tr><td style="color:#a1a1aa;">TP / FP</td><td style="color:#e2e8f0;font-weight:600;">'+m.total_tp+' / '+m.total_fp+'</td><td style="color:#94a3b8;">TP rate: '+m.tp_rate+'%</td></tr>';
+    html+='</table></div>';
+
+    html+='</div></div>';
+  }
+  el.innerHTML=html;
+}
+
+function toggleCalc(i){
+  var el=document.getElementById('calc-expand-'+i);
+  el.style.display=(el.style.display==='none')?'block':'none';
+}
+
+// ── TABLE ────────────────────────────────────────────────────
+function fillTable(M){
+  var tb=document.getElementById('tbl-body'); tb.innerHTML='';
+  for(var i=0;i<M.length;i++){
+    var m=M[i],r=i+1,rc=r<=3?' rank-'+r:'';
+    var tr=document.createElement('tr');
+    tr.innerHTML=
+      '<td><span class="rank-medal'+rc+'">'+r+'</span></td>'+
+      '<td><strong style="color:#e2e8f0;">'+m.name+'</strong></td>'+
+      '<td class="text-center" style="color:#e2e8f0;">'+m.num_cwes+'</td>'+
+      '<td class="text-center" style="color:#818cf8;font-weight:600;">'+m.sum_risk+'</td>'+
+      '<td class="text-center" style="color:#ef4444;font-weight:600;">'+m.sum_of_squares+'</td>'+
+      '<td class="text-center" style="color:#f59e0b;font-weight:600;">'+m.rms+'</td>'+
+      '<td class="text-center" style="color:#22c55e;font-weight:600;">'+m.sum_sqrt+'</td>'+
+      '<td class="text-center" style="color:#e879f9;font-weight:600;">'+m.geometric_mean+'</td>'+
+      '<td class="text-center" style="color:#e2e8f0;">'+m.max_risk+'</td>'+
+      '<td class="text-center" style="color:#e2e8f0;">'+m.avg_risk+'</td>'+
+      '<td class="text-center" style="color:#ef4444;">'+m.total_tp+'</td>'+
+      '<td class="text-center" style="color:#94a3b8;">'+m.total_fp+'</td>'+
+      '<td class="text-center" style="color:#e2e8f0;">'+m.tp_rate+'%</td>'+
+      '<td class="text-center" style="color:#e2e8f0;">'+m.systematic_cwes+'</td>'+
+      '<td class="text-center" style="color:#e2e8f0;">'+m.saturation+'</td>';
+    tb.appendChild(tr);
+  }
+}
+
+// ── PERCENTILES ──────────────────────────────────────────────
+function fillPercentiles(P){
+  var row=document.getElementById('pct-row');
+  if(!P||P.p50==null){row.innerHTML='<div style="color:#a1a1aa;" class="py-2">Need 2+ models for percentiles</div>';return;}
+  var items=[
+    {k:'p5',lbl:'P5',desc:'Lowest 5% Σ Risk (most secure)',c:'#22c55e'},
+    {k:'p25',lbl:'P25',desc:'Lower quartile',c:'#86efac'},
+    {k:'p50',lbl:'P50',desc:'Median',c:'#f59e0b'},
+    {k:'p75',lbl:'P75',desc:'Upper quartile',c:'#fb923c'},
+    {k:'p95',lbl:'P95',desc:'Top 5% Σ Risk (most vulnerable)',c:'#ef4444'}
+  ];
+  var html='';
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    html+='<div class="pct-block"><div style="font-size:1.5rem;font-weight:700;color:'+it.c+';">'+P[it.k]+'</div><div style="font-size:0.78rem;color:'+it.c+';font-weight:600;">'+it.lbl+'</div><div style="font-size:0.65rem;color:#94a3b8;">'+it.desc+'</div></div>';
+  }
+  row.innerHTML=html;
+}
+
+document.addEventListener('DOMContentLoaded',function(){fetchData('all');});
+</script>
+{% endblock %}

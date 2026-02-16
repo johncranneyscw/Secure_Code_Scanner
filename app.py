@@ -6,6 +6,7 @@ import openpyxl
 import json
 import time
 import math
+import numpy as np
 from queue import Queue
 from threading import Thread
 
@@ -30,113 +31,49 @@ def calculate_risk_scores(analysis_data, total_runs):
     Only TRUE POSITIVES are counted (FP ignored)
     Volume uses affected file count to measure systemic spread rather
     than total finding count to avoid overweighting concentrated issues.
+    
+    Returns TWO dicts:
+    - per_language_scores: {language: {cwe_id: score_data}} — isolated per language
+    - global_scores: {cwe_id: score_data} — aggregated across languages (for model score)
     """
     
     # Severity mapping
-    # Note: Semgrep's ERROR→HIGH, WARNING→MEDIUM, INFO→LOW (backwards compatible)
     SEVERITY_MAP = {
         'CRITICAL': 1.0,
         'HIGH': 0.8,
-        'ERROR': 0.8,      # Semgrep: ERROR = HIGH
+        'ERROR': 0.8,
         'MEDIUM': 0.6,
-        'WARNING': 0.6,    # Semgrep: WARNING = MEDIUM
+        'WARNING': 0.6,
         'LOW': 0.4,
-        'INFO': 0.4        # Semgrep: INFO = LOW
+        'INFO': 0.4
     }
     
-    scored_cwes = {}
-    
-    for language, lang_data in analysis_data['by_language'].items():
-        for cwe_id, cwe_info in lang_data['cwes'].items():
-            # Only process if we have TPs
-            tp_count = cwe_info['verdicts'].get('true_positive', 0)
-            
-            if tp_count == 0:
-                continue
-            
-            # If CWE already seen in another language, aggregate the data
-            if cwe_id in scored_cwes:
-                # Aggregate across languages
-                existing = scored_cwes[cwe_id]
-                
-                # Update counts
-                existing['_tp_count_total'] += tp_count
-                existing['_fp_count_total'] += cwe_info['verdicts'].get('false_positive', 0)
-                
-                # Add files (check for duplicates across languages - unlikely but possible)
-                existing_files = set(existing['_tp_files'])
-                new_files = set(cwe_info.get('true_positive_files', []))
-                existing['_tp_files'] = list(existing_files | new_files)
-                
-                # Update runs (union of runs)
-                existing_runs = set(existing['_runs'])
-                new_runs = set(cwe_info.get('found_in_runs', []))
-                existing['_runs'] = list(existing_runs | new_runs)
-                
-                # Update tools (union of tools)
-                existing_tools = set(existing['_tools'])
-                new_tools = set(cwe_info.get('tools', []))
-                existing['_tools'] = list(existing_tools | new_tools)
-                
-                # Update severities (union, take max for scoring)
-                existing_sevs = set(existing['_severities'])
-                new_sevs = set(cwe_info.get('severities', []))
-                existing['_severities'] = list(existing_sevs | new_sevs)
-                
-                continue  # Don't recalculate yet, will do after aggregation
-            
-            # First time seeing this CWE - store raw data for aggregation
-            scored_cwes[cwe_id] = {
-                '_tp_count_total': tp_count,
-                '_fp_count_total': cwe_info['verdicts'].get('false_positive', 0),
-                '_tp_files': list(cwe_info.get('true_positive_files', [])),
-                '_runs': list(cwe_info.get('found_in_runs', [])),
-                '_tools': list(cwe_info.get('tools', [])),
-                '_severities': list(cwe_info.get('severities', []))
-            }
-    
-    # Now calculate risk scores for each aggregated CWE
-    final_scored_cwes = {}
-    
-    for cwe_id, aggregated_data in scored_cwes.items():
-        tp_count = aggregated_data['_tp_count_total']
-        fp_count = aggregated_data['_fp_count_total']
-        tp_files = aggregated_data['_tp_files']
-        runs = aggregated_data['_runs']
-        tools = aggregated_data['_tools']
-        severities = aggregated_data['_severities']
+    def _compute_score(tp_count, fp_count, tp_files, runs, tools, severities, total_runs):
+        """Compute risk score for a single CWE entry"""
+        if tp_count == 0:
+            return None
         
-        # 1. Validation Switch (V): 1 if TP exists
         V = 1
-        
-        # 2. Impact (I): Based on severity (use highest if multiple)
         impact_scores = [SEVERITY_MAP.get(s.upper(), 0.5) for s in severities]
-        I = max(impact_scores)
+        I = max(impact_scores) if impact_scores else 0.5
         
-        # 3. Likelihood (L): Percentage of runs with this CWE
         runs_with_cwe = len(runs)
         L = runs_with_cwe / total_runs if total_runs > 0 else 0
         
-        # 4. Volume (Vol): Log-scaled TP file count (systemic spread)
-        # Uses number of files affected rather than total finding count
-        # to measure how widespread the vulnerability is across the codebase
         tp_file_count = len(tp_files)
         Vol = math.log10(tp_file_count + 1) if tp_file_count > 0 else 0
         
-        # 5. Confidence (C): Based on number of tools
         tools_count = len(tools)
         if tools_count == 1:
             C = 0.7
         elif tools_count == 2:
             C = 0.85
-        else:  # 3+ tools
+        else:
             C = 1.0
         
-        # Calculate Risk Score
         risk_score = V * I * L * Vol * C * 100
-        risk_score = min(risk_score, 100)  # Cap at 100
+        risk_score = min(risk_score, 100)
         
-        # Determine risk level
         if risk_score >= 80:
             risk_level = 'CRITICAL'
             risk_color = 'danger'
@@ -151,9 +88,9 @@ def calculate_risk_scores(analysis_data, total_runs):
             risk_color = 'secondary'
         else:
             risk_level = 'MINIMAL'
-            risk_color = 'success'  # Changed from 'light' to 'success' (green) for visibility
+            risk_color = 'success'
         
-        final_scored_cwes[cwe_id] = {
+        return {
             'risk_score': round(risk_score, 2),
             'risk_level': risk_level,
             'risk_color': risk_color,
@@ -163,16 +100,78 @@ def calculate_risk_scores(analysis_data, total_runs):
             'Vol': round(Vol, 2),
             'C': C,
             'tp_count': tp_count,
-            'tp_file_count': tp_file_count,  # Store for dashboard display
+            'tp_file_count': tp_file_count,
             'fp_count': fp_count,
             'runs_count': runs_with_cwe,
             'tools_count': tools_count,
-            'severities': severities,  # Store severity list
-            'tools': tools,  # Store tool list
-            'runs': runs  # Store run list
+            'severities': severities,
+            'tools': tools,
+            'runs': runs
         }
     
-    return final_scored_cwes
+    # ── Per-Language Scores ──────────────────────────────────────────
+    per_language_scores = {}
+    
+    for language, lang_data in analysis_data['by_language'].items():
+        lang_scores = {}
+        for cwe_id, cwe_info in lang_data['cwes'].items():
+            tp_count = cwe_info['verdicts'].get('true_positive', 0)
+            if tp_count == 0:
+                continue
+            
+            fp_count = cwe_info['verdicts'].get('false_positive', 0)
+            tp_files = list(cwe_info.get('true_positive_files', []))
+            
+            # For per-language: only count runs where THIS language had TPs
+            # Use found_in_runs which tracks runs where this CWE appeared in this language
+            runs = list(cwe_info.get('found_in_runs', []))
+            tools = list(cwe_info.get('tools', []))
+            severities = list(cwe_info.get('severities', []))
+            
+            score = _compute_score(tp_count, fp_count, tp_files, runs, tools, severities, total_runs)
+            if score:
+                lang_scores[cwe_id] = score
+        
+        if lang_scores:
+            per_language_scores[language] = lang_scores
+    
+    # ── Global Aggregated Scores (for model-level scoring) ──────────
+    global_cwes = {}
+    
+    for language, lang_data in analysis_data['by_language'].items():
+        for cwe_id, cwe_info in lang_data['cwes'].items():
+            tp_count = cwe_info['verdicts'].get('true_positive', 0)
+            if tp_count == 0:
+                continue
+            
+            if cwe_id in global_cwes:
+                existing = global_cwes[cwe_id]
+                existing['_tp_count'] += tp_count
+                existing['_fp_count'] += cwe_info['verdicts'].get('false_positive', 0)
+                existing['_tp_files'] = list(set(existing['_tp_files']) | set(cwe_info.get('true_positive_files', [])))
+                existing['_runs'] = list(set(existing['_runs']) | set(cwe_info.get('found_in_runs', [])))
+                existing['_tools'] = list(set(existing['_tools']) | set(cwe_info.get('tools', [])))
+                existing['_severities'] = list(set(existing['_severities']) | set(cwe_info.get('severities', [])))
+            else:
+                global_cwes[cwe_id] = {
+                    '_tp_count': tp_count,
+                    '_fp_count': cwe_info['verdicts'].get('false_positive', 0),
+                    '_tp_files': list(cwe_info.get('true_positive_files', [])),
+                    '_runs': list(cwe_info.get('found_in_runs', [])),
+                    '_tools': list(cwe_info.get('tools', [])),
+                    '_severities': list(cwe_info.get('severities', []))
+                }
+    
+    global_scores = {}
+    for cwe_id, agg in global_cwes.items():
+        score = _compute_score(
+            agg['_tp_count'], agg['_fp_count'], agg['_tp_files'],
+            agg['_runs'], agg['_tools'], agg['_severities'], total_runs
+        )
+        if score:
+            global_scores[cwe_id] = score
+    
+    return per_language_scores, global_scores
 
 
 def calculate_model_score(scored_cwes, total_runs, total_findings, total_tp, total_files_with_tp):
@@ -313,14 +312,42 @@ ALLOWED_JSON_EXTENSIONS = {"json"}
 # Changed to store multiple runs
 ALL_RUNS = []  # List of dicts, each containing results for one run
 
-# Store analysis results from JSON
+# Multi-model store: {model_name: {analysis: ..., decisions: {...}, model_name: str}}
+ALL_MODELS = {}
+
+# Currently selected model name (for backward compat)
+CURRENT_MODEL = None
+
+# Store analysis results from JSON (backward compat — points to current model's data)
 ANALYSIS_DATA = None
 
-# Store AI decision data indexed by stable_id
+# Store AI decision data indexed by stable_id (backward compat — points to current model's data)
 DECISIONS_DATA = {}  # stable_id -> decision dict
 
 # Progress tracking
 progress_queues = {}  # scan_id -> Queue for progress updates
+
+
+def get_model_data(model_name=None):
+    """Get analysis and decisions data for a specific model"""
+    global ALL_MODELS, CURRENT_MODEL
+    if model_name is None:
+        model_name = CURRENT_MODEL
+    if model_name and model_name in ALL_MODELS:
+        return ALL_MODELS[model_name]['analysis'], ALL_MODELS[model_name]['decisions']
+    return None, {}
+
+
+def set_current_model(model_name):
+    """Set the current model and update backward-compat globals"""
+    global CURRENT_MODEL, ANALYSIS_DATA, DECISIONS_DATA
+    CURRENT_MODEL = model_name
+    if model_name and model_name in ALL_MODELS:
+        ANALYSIS_DATA = ALL_MODELS[model_name]['analysis']
+        DECISIONS_DATA = ALL_MODELS[model_name]['decisions']
+    else:
+        ANALYSIS_DATA = None
+        DECISIONS_DATA = {}
 
 
 def allowed_file(filename):
@@ -329,6 +356,10 @@ def allowed_file(filename):
 
 def allowed_json_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_JSON_EXTENSIONS
+
+
+def allowed_zip_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() == "zip"
 
 
 def get_language_from_file(filepath):
@@ -1580,7 +1611,7 @@ def index():
         # Redirect to progress page
         return redirect(url_for("scan_progress", scan_id=scan_id))
 
-    return render_template("index.html", num_runs=len(ALL_RUNS))
+    return render_template("index.html", num_runs=len(ALL_RUNS), num_models=len(ALL_MODELS))
 
 
 @app.route("/scan_progress/<scan_id>")
@@ -1595,221 +1626,447 @@ def scan_progress(scan_id):
 
 @app.route("/upload_json", methods=["POST"])
 def upload_json():
-    """Upload and analyze a results JSON file, optionally with decisions JSON"""
-    global ANALYSIS_DATA, DECISIONS_DATA
+    """Upload multiple ZIP files, each containing verdicted + decisions JSON for one model"""
+    global ALL_MODELS, CURRENT_MODEL, ANALYSIS_DATA, DECISIONS_DATA
     
-    if "results_json" not in request.files:
-        flash("No JSON file uploaded", "warning")
+    zip_files = request.files.getlist("model_zips")
+    
+    # Fallback: if getlist returns empty, try getting single file
+    if not zip_files or all(f.filename == "" for f in zip_files):
+        single = request.files.get("model_zips")
+        if single and single.filename:
+            zip_files = [single]
+    
+    if not zip_files or all(f.filename == "" for f in zip_files):
+        flash("No ZIP files uploaded. Please select .zip files containing your model results.", "warning")
         return redirect(url_for("index"))
     
-    file = request.files["results_json"]
+    models_processed = []
+    errors = []
     
-    if file.filename == "":
-        flash("No file selected", "warning")
-        return redirect(url_for("index"))
-    
-    if not allowed_json_file(file.filename):
-        flash("Invalid file type. Please upload a .json file", "danger")
-        return redirect(url_for("index"))
-    
-    # Handle decisions JSON upload (optional)
-    decisions_file = request.files.get("decisions_json")
-    if decisions_file and decisions_file.filename and allowed_json_file(decisions_file.filename):
+    for zip_file in zip_files:
+        if zip_file.filename == "":
+            continue
+        if not allowed_zip_file(zip_file.filename):
+            errors.append(f"{zip_file.filename}: Not a .zip file, skipped")
+            continue
+        
         try:
-            DECISIONS_DATA = {}
-            content = decisions_file.read().decode('utf-8')
-            # Try JSONL format first (one JSON object per line)
-            for line in content.strip().split('\n'):
-                line = line.strip()
-                if line:
+            import zipfile
+            import io
+            
+            zip_data = io.BytesIO(zip_file.read())
+            
+            if not zipfile.is_zipfile(zip_data):
+                errors.append(f"{zip_file.filename}: Not a valid ZIP file")
+                continue
+            
+            zip_data.seek(0)
+            
+            verdicted_content = None
+            decisions_content = None
+            verdicted_name = None
+            
+            with zipfile.ZipFile(zip_data, 'r') as zf:
+                print(f"\n📦 ZIP contents for {zip_file.filename}:")
+                for name in zf.namelist():
+                    print(f"   → {name}")
+                
+                for name in zf.namelist():
+                    # Skip directories and hidden files
+                    basename = name.split('/')[-1]
+                    if not basename or basename.startswith('.') or basename.startswith('__'):
+                        continue
+                    if not basename.lower().endswith('.json'):
+                        continue
+                    
+                    content = zf.read(name).decode('utf-8')
+                    
+                    if 'verdicted' in basename.lower():
+                        verdicted_content = content
+                        verdicted_name = basename
+                        print(f"   ✅ Verdicted JSON: {basename} ({len(content)} bytes)")
+                    elif 'decision' in basename.lower():
+                        decisions_content = content
+                        print(f"   ✅ Decisions JSON: {basename} ({len(content)} bytes)")
+                    else:
+                        # If no keyword match, try to detect by content
+                        try:
+                            test_data = json.loads(content)
+                            if isinstance(test_data, dict) and 'runs' in test_data:
+                                verdicted_content = content
+                                verdicted_name = basename
+                                print(f"   ✅ Detected verdicted (by structure): {basename}")
+                        except:
+                            pass
+            
+            if not verdicted_content:
+                errors.append(f"{zip_file.filename}: No verdicted JSON found in ZIP")
+                continue
+            
+            # Parse verdicted JSON
+            json_data = json.loads(verdicted_content)
+            
+            if "runs" not in json_data or not isinstance(json_data["runs"], list) or len(json_data["runs"]) == 0:
+                errors.append(f"{zip_file.filename}: Invalid JSON structure — missing 'runs'")
+                continue
+            
+            # Derive model name from project field or zip filename
+            model_name = json_data.get("project", "")
+            if not model_name:
+                model_name = zip_file.filename.rsplit('.', 1)[0]
+            
+            # Parse decisions (JSONL or JSON)
+            model_decisions = {}
+            if decisions_content:
+                # Try JSONL first
+                for line in decisions_content.strip().split('\n'):
+                    line = line.strip()
+                    if line:
+                        try:
+                            decision = json.loads(line)
+                            stable_id = decision.get('stable_id')
+                            if stable_id:
+                                model_decisions[stable_id] = decision
+                        except json.JSONDecodeError:
+                            pass
+                
+                # If JSONL found nothing, try regular JSON
+                if not model_decisions:
                     try:
-                        decision = json.loads(line)
-                        stable_id = decision.get('stable_id')
-                        if stable_id:
-                            DECISIONS_DATA[stable_id] = decision
+                        data = json.loads(decisions_content)
+                        if isinstance(data, list):
+                            for decision in data:
+                                stable_id = decision.get('stable_id')
+                                if stable_id:
+                                    model_decisions[stable_id] = decision
+                        elif isinstance(data, dict) and 'decisions' in data:
+                            for decision in data['decisions']:
+                                stable_id = decision.get('stable_id')
+                                if stable_id:
+                                    model_decisions[stable_id] = decision
                     except json.JSONDecodeError:
                         pass
             
-            # If JSONL parsing found nothing, try as regular JSON array
-            if not DECISIONS_DATA:
-                try:
-                    data = json.loads(content)
-                    if isinstance(data, list):
-                        for decision in data:
-                            stable_id = decision.get('stable_id')
-                            if stable_id:
-                                DECISIONS_DATA[stable_id] = decision
-                    elif isinstance(data, dict) and 'decisions' in data:
-                        for decision in data['decisions']:
-                            stable_id = decision.get('stable_id')
-                            if stable_id:
-                                DECISIONS_DATA[stable_id] = decision
-                except json.JSONDecodeError:
-                    pass
+            # Validate and count
+            total_runs = len(json_data["runs"])
+            total_sast_findings = 0
             
-            print(f"✅ Loaded {len(DECISIONS_DATA)} AI decisions")
-        except Exception as e:
-            print(f"⚠️ Could not parse decisions JSON: {e}")
-            DECISIONS_DATA = {}
-    else:
-        DECISIONS_DATA = {}
-    
-    try:
-        # Read and parse JSON
-        json_data = json.load(file)
-        
-        # Comprehensive validation
-        validation_errors = []
-        
-        # Check required top-level fields
-        if "runs" not in json_data:
-            validation_errors.append("Missing 'runs' array in JSON")
-        elif not isinstance(json_data["runs"], list):
-            validation_errors.append("'runs' must be an array")
-        elif len(json_data["runs"]) == 0:
-            validation_errors.append("'runs' array is empty")
-        
-        if validation_errors:
-            flash(f"Invalid JSON structure: {'; '.join(validation_errors)}", "danger")
-            return redirect(url_for("index"))
-        
-        # Validate and count all data
-        total_runs = len(json_data["runs"])
-        total_findings = 0
-        total_sast_findings = 0
-        total_dep_findings = 0
-        missing_data_warnings = []
-        
-        for run_idx, run in enumerate(json_data["runs"]):
-            run_num = run.get("run_number", run_idx + 1)
+            for run in json_data["runs"]:
+                if "results" in run and "sast" in run["results"]:
+                    for tool, findings in run["results"]["sast"].items():
+                        if isinstance(findings, list):
+                            total_sast_findings += len(findings)
             
-            # Check run structure
-            if "results" not in run:
-                missing_data_warnings.append(f"Run {run_num}: Missing 'results'")
-                continue
+            # Analyze
+            print(f"\n{'='*60}")
+            print(f"📦 Processing: {model_name}")
+            print(f"   Source ZIP: {zip_file.filename}")
+            print(f"   Runs: {total_runs}, SAST findings: {total_sast_findings}")
+            if model_decisions:
+                print(f"   AI decisions: {len(model_decisions)}")
             
-            results = run["results"]
+            analysis = analyze_json_by_language(json_data)
             
-            # Count SAST findings
-            if "sast" in results:
-                for tool, findings in results["sast"].items():
-                    if not isinstance(findings, list):
-                        missing_data_warnings.append(f"Run {run_num}: {tool} findings not a list")
-                        continue
-                    
-                    total_sast_findings += len(findings)
-                    total_findings += len(findings)
-                    
-                    # Validate each finding
-                    for finding_idx, finding in enumerate(findings):
-                        required_fields = ["cwe", "file", "severity", "scanner"]
-                        for field in required_fields:
-                            if field not in finding:
-                                missing_data_warnings.append(
-                                    f"Run {run_num}, {tool}, finding {finding_idx}: Missing '{field}'"
-                                )
-            else:
-                missing_data_warnings.append(f"Run {run_num}: No SAST results")
+            # Calculate risk scores
+            per_language_scores, global_risk_scores = calculate_risk_scores(analysis, total_runs)
+            analysis['risk_scores'] = global_risk_scores
+            analysis['risk_scores_by_language'] = per_language_scores
             
-            # Count DEP findings
-            if "dep" in results:
-                for tool, findings in results["dep"].items():
-                    if isinstance(findings, list):
-                        total_dep_findings += len(findings)
-                        total_findings += len(findings)
-        
-        # Report validation results
-        if missing_data_warnings:
-            print("⚠️  DATA VALIDATION WARNINGS:")
-            for warning in missing_data_warnings[:10]:  # Show first 10
-                print(f"   {warning}")
-            if len(missing_data_warnings) > 10:
-                print(f"   ... and {len(missing_data_warnings) - 10} more warnings")
-        
-        print(f"\n✅ JSON VALIDATION COMPLETE:")
-        print(f"   Total runs: {total_runs}")
-        print(f"   Total findings: {total_findings}")
-        print(f"   SAST findings: {total_sast_findings}")
-        print(f"   DEP findings: {total_dep_findings}")
-        print(f"   Validation warnings: {len(missing_data_warnings)}")
-        
-        # Perform language-wise analysis
-        ANALYSIS_DATA = analyze_json_by_language(json_data)
-        
-        # Calculate risk scores for each CWE
-        print("\n📊 Calculating risk scores...")
-        cwe_risk_scores = calculate_risk_scores(ANALYSIS_DATA, total_runs)
-        ANALYSIS_DATA['risk_scores'] = cwe_risk_scores
-        
-        # Calculate overall model score
-        total_files_with_tp = len(set(
-            file 
-            for lang_data in ANALYSIS_DATA['by_language'].values()
-            for cwe_data in lang_data['cwes'].values()
-            if cwe_data['verdicts'].get('true_positive', 0) > 0
-            for file in cwe_data.get('true_positive_files', [])
-        ))
-        
-        model_score = calculate_model_score(
-            cwe_risk_scores,
-            total_runs,
-            total_sast_findings,
-            sum(cwe['tp_count'] for cwe in cwe_risk_scores.values()),
-            total_files_with_tp
-        )
-        ANALYSIS_DATA['model_score'] = model_score
-        
-        print(f"   Model Security Score: {model_score['final_score']}/100 ({model_score['rating']})")
-        print(f"   CWEs scored: {len(cwe_risk_scores)}")
-        print(f"   Critical CWEs: {model_score['metrics']['critical_cwes']}")
-        
-        # Verify no data loss
-        analyzed_findings = ANALYSIS_DATA['metadata']['total_findings']
-        if analyzed_findings != total_sast_findings:
-            flash(
-                f"⚠️ Warning: Analyzed {analyzed_findings} findings but JSON contained {total_sast_findings} SAST findings. "
-                f"Some data may not have been processed correctly.",
-                "warning"
+            # Calculate model score
+            total_files_with_tp = len(set(
+                file 
+                for lang_data in analysis['by_language'].values()
+                for cwe_data in lang_data['cwes'].values()
+                if cwe_data['verdicts'].get('true_positive', 0) > 0
+                for file in cwe_data.get('true_positive_files', [])
+            ))
+            
+            model_score = calculate_model_score(
+                global_risk_scores,
+                total_runs,
+                total_sast_findings,
+                sum(cwe['tp_count'] for cwe in global_risk_scores.values()),
+                total_files_with_tp
             )
+            analysis['model_score'] = model_score
+            analysis['model_name'] = model_name
+            
+            print(f"   Model Score: {model_score['final_score']}/100 ({model_score['rating']})")
+            print(f"   CWEs scored: {len(global_risk_scores)}")
+            
+            # Store in ALL_MODELS
+            ALL_MODELS[model_name] = {
+                'analysis': analysis,
+                'decisions': model_decisions,
+                'model_name': model_name
+            }
+            
+            models_processed.append({
+                'name': model_name,
+                'score': model_score['final_score'],
+                'rating': model_score['rating'],
+                'runs': total_runs,
+                'findings': total_sast_findings,
+                'decisions': len(model_decisions),
+                'cwes': len(global_risk_scores)
+            })
+            
+        except Exception as e:
+            errors.append(f"{zip_file.filename}: {str(e)}")
+            print(f"ERROR processing {zip_file.filename}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Flash results
+    if models_processed:
+        msg_parts = [f"✅ Processed {len(models_processed)} model(s):"]
+        for m in models_processed:
+            decisions_info = f" | 🤖 {m['decisions']} decisions" if m['decisions'] > 0 else ""
+            msg_parts.append(
+                f"  • {m['name']}: {m['score']}/100 ({m['rating']}) — "
+                f"{m['runs']} runs, {m['findings']} findings, {m['cwes']} CWEs{decisions_info}"
+            )
+        flash(" | ".join(msg_parts), "success")
         
-        success_msg = (
-            f"✅ Successfully analyzed {ANALYSIS_DATA['metadata']['total_runs']} runs with "
-            f"{ANALYSIS_DATA['metadata']['total_findings']} findings! "
-            f"Found {ANALYSIS_DATA['metadata']['total_languages']} languages and "
-            f"{ANALYSIS_DATA['metadata']['total_unique_cwes']} unique CWEs. "
-            f"Model Score: {model_score['final_score']}/100 ({model_score['rating']})"
-        )
-        
-        if DECISIONS_DATA:
-            success_msg += f" | 🤖 {len(DECISIONS_DATA)} AI decisions loaded"
-        
-        if missing_data_warnings:
-            success_msg += f" ({len(missing_data_warnings)} data warnings - check console for details)"
-        
-        flash(success_msg, "success")
-        return redirect(url_for("analysis_results"))
-        
-    except json.JSONDecodeError as e:
-        flash(f"Invalid JSON file: {str(e)}", "danger")
+        # Set the first (or latest) model as current
+        set_current_model(models_processed[0]['name'])
+    
+    if errors:
+        flash(f"⚠️ Errors: {' | '.join(errors)}", "warning")
+    
+    if not models_processed:
+        flash("No models were successfully processed", "danger")
         return redirect(url_for("index"))
-    except Exception as e:
-        flash(f"Error processing JSON: {str(e)}", "danger")
-        print(f"ERROR: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
+    
+    return redirect(url_for("model_select"))
+
+
+@app.route("/model_select")
+def model_select():
+    """Show all loaded models for selection"""
+    global ALL_MODELS
+    
+    if not ALL_MODELS:
+        flash("No models loaded. Please upload ZIP files first.", "warning")
         return redirect(url_for("index"))
+    
+    models_info = []
+    for name, data in ALL_MODELS.items():
+        analysis = data['analysis']
+        models_info.append({
+            'name': name,
+            'score': analysis['model_score']['final_score'],
+            'rating': analysis['model_score']['rating'],
+            'color': analysis['model_score']['color'],
+            'runs': analysis['metadata']['total_runs'],
+            'findings': analysis['metadata']['total_findings'],
+            'languages': analysis['metadata']['total_languages'],
+            'cwes': analysis['metadata']['total_unique_cwes'],
+            'has_decisions': bool(data['decisions']),
+            'decisions_count': len(data['decisions']),
+        })
+    
+    # Sort by score ascending (worst first — most vulnerable at top)
+    models_info.sort(key=lambda x: x['score'])
+    
+    return render_template("model_select.html", models=models_info)
+
+
+@app.route("/model_comparison")
+def model_comparison():
+    """Model comparison dashboard with charts and percentile analysis"""
+    global ALL_MODELS
+    
+    if len(ALL_MODELS) < 2:
+        flash("Need at least 2 models loaded for comparison. Please upload more ZIP files.", "warning")
+        return redirect(url_for("model_select") if ALL_MODELS else url_for("index"))
+    
+    # Collect all languages across all models
+    all_languages = set()
+    for name, data in ALL_MODELS.items():
+        all_languages.update(data['analysis']['by_language'].keys())
+    all_languages = sorted(all_languages)
+    
+    return render_template("model_comparison.html", 
+                         all_models=ALL_MODELS,
+                         all_languages=all_languages)
+
+
+@app.route("/api/comparison_data")
+def api_comparison_data():
+    """API endpoint returning comparison data for all models, optionally filtered by language"""
+    global ALL_MODELS
+    
+    language_filter = request.args.get('language', 'all')
+    
+    comparison = {
+        'language_filter': language_filter,
+        'models': [],
+        'all_languages': sorted(set(
+            lang
+            for data in ALL_MODELS.values()
+            for lang in data['analysis']['by_language'].keys()
+        )),
+        'percentiles': {}
+    }
+    
+    for model_name, model_data in ALL_MODELS.items():
+        analysis = model_data['analysis']
+        
+        if language_filter == 'all':
+            # Use global risk scores
+            risk_scores = analysis.get('risk_scores', {})
+            # Aggregate stats across all languages
+            total_tp = sum(
+                cwe_data['verdicts'].get('true_positive', 0)
+                for lang_data in analysis['by_language'].values()
+                for cwe_data in lang_data['cwes'].values()
+            )
+            total_fp = sum(
+                cwe_data['verdicts'].get('false_positive', 0)
+                for lang_data in analysis['by_language'].values()
+                for cwe_data in lang_data['cwes'].values()
+            )
+            total_findings = analysis['metadata']['total_findings']
+            languages_present = list(analysis['by_language'].keys())
+        else:
+            # Use per-language risk scores
+            risk_scores = analysis.get('risk_scores_by_language', {}).get(language_filter, {})
+            lang_data = analysis['by_language'].get(language_filter, {})
+            if lang_data:
+                total_tp = lang_data.get('statistics', {}).get('true_positives', 0)
+                total_fp = lang_data.get('statistics', {}).get('false_positives', 0)
+                total_findings = sum(
+                    cwe_data['verdicts'].get('true_positive', 0) + cwe_data['verdicts'].get('false_positive', 0)
+                    for cwe_data in lang_data.get('cwes', {}).values()
+                )
+            else:
+                total_tp = 0
+                total_fp = 0
+                total_findings = 0
+            languages_present = [language_filter] if lang_data else []
+        
+        # Calculate metrics from risk scores
+        scores_list = [s['risk_score'] for s in risk_scores.values()]
+        num_cwes = len(risk_scores)
+        sum_risk = sum(scores_list) if scores_list else 0
+        max_risk = max(scores_list) if scores_list else 0
+        avg_risk = sum_risk / num_cwes if num_cwes > 0 else 0
+        
+        # Severity breakdown from risk scores
+        severity_breakdown = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'MINIMAL': 0}
+        for s in risk_scores.values():
+            severity_breakdown[s['risk_level']] = severity_breakdown.get(s['risk_level'], 0) + 1
+        
+        # CWE details for the table
+        cwe_details = []
+        for cwe_id, score_data in sorted(risk_scores.items(), key=lambda x: x[1]['risk_score'], reverse=True):
+            cwe_details.append({
+                'cwe_id': cwe_id,
+                'risk_score': score_data['risk_score'],
+                'risk_level': score_data['risk_level'],
+                'tp_count': score_data['tp_count'],
+                'runs_count': score_data['runs_count'],
+                'tools_count': score_data['tools_count']
+            })
+        
+        # Data-derived metrics only (no constants)
+        total_runs = analysis['metadata']['total_runs']
+        
+        systematic = sum(1 for s in risk_scores.values() if s['runs_count'] / total_runs > 0.5) if total_runs > 0 else 0
+        systematic_ratio = round(systematic / max(num_cwes, 1), 4)
+        runs_with_tp = len(set(r for s in risk_scores.values() for r in s.get('runs', [])))
+        saturation = round(runs_with_tp / total_runs, 4) if total_runs > 0 else 0
+        
+        # TP rate
+        tp_rate = round(total_tp / (total_tp + total_fp) * 100, 1) if (total_tp + total_fp) > 0 else 0
+        
+        # ── AGGREGATION METRICS ──────────────────────────────────
+        sum_of_squares = sum(s * s for s in scores_list) if scores_list else 0
+        rms = math.sqrt(sum_of_squares / num_cwes) if num_cwes > 0 else 0
+        sum_sqrt = sum(math.sqrt(s) for s in scores_list) if scores_list else 0
+        sum_log = sum(math.log10(s + 1) for s in scores_list) if scores_list else 0
+        geometric_mean = math.pow(10, sum_log / num_cwes) - 1 if num_cwes > 0 else 0
+        
+        comparison['models'].append({
+            'name': model_name,
+            'num_cwes': num_cwes,
+            'sum_risk': round(sum_risk, 2),
+            'max_risk': round(max_risk, 2),
+            'avg_risk': round(avg_risk, 2),
+            'total_tp': total_tp,
+            'total_fp': total_fp,
+            'tp_rate': tp_rate,
+            'total_findings': total_findings,
+            'total_runs': total_runs,
+            'severity_breakdown': severity_breakdown,
+            'systematic_cwes': systematic,
+            'systematic_ratio': systematic_ratio,
+            'saturation': saturation,
+            'runs_with_tp': runs_with_tp,
+            'languages_present': languages_present,
+            'cwe_details': cwe_details,
+            # Aggregation metrics
+            'sum_of_squares': round(sum_of_squares, 2),
+            'rms': round(rms, 2),
+            'sum_sqrt': round(sum_sqrt, 2),
+            'geometric_mean': round(geometric_mean, 2),
+            # Calculation breakdown
+            'calc': {
+                'scores_list': [round(s, 2) for s in sorted(scores_list, reverse=True)]
+            }
+        })
+    
+    # Sort by sum_of_squares ascending (lowest = most secure)
+    comparison['models'].sort(key=lambda x: x['sum_of_squares'])
+    
+    # Calculate percentiles on sum_risk (lower = better, so invert for percentile)
+    all_sum_risk = [m['sum_risk'] for m in comparison['models']]
+    if len(all_sum_risk) >= 2:
+        arr = np.array(all_sum_risk)
+        comparison['percentiles'] = {
+            'p95': round(float(np.percentile(arr, 95)), 2),
+            'p75': round(float(np.percentile(arr, 75)), 2),
+            'p50': round(float(np.percentile(arr, 50)), 2),
+            'p25': round(float(np.percentile(arr, 25)), 2),
+            'p5': round(float(np.percentile(arr, 5)), 2),
+        }
+        
+        # Percentile rank: lower sum_risk = better, so % of models with HIGHER sum_risk
+        for model in comparison['models']:
+            model['percentile'] = round(
+                float((arr > model['sum_risk']).sum() / len(arr) * 100), 1
+            )
+    
+    return json.dumps(comparison), 200, {'Content-Type': 'application/json'}
 
 
 @app.route("/analysis_results")
-def analysis_results():
-    """Display analysis results from uploaded JSON"""
-    global ANALYSIS_DATA
+@app.route("/analysis_results/<path:model_name>")
+def analysis_results(model_name=None):
+    """Display analysis results for a specific model"""
+    global ALL_MODELS
+    
+    # Also support ?model= query param as fallback
+    if not model_name:
+        model_name = request.args.get('model')
+    
+    if model_name and model_name in ALL_MODELS:
+        set_current_model(model_name)
+    elif not ANALYSIS_DATA and ALL_MODELS:
+        # No model selected, go to selection
+        return redirect(url_for("model_select"))
     
     if ANALYSIS_DATA is None:
-        flash("No analysis data available. Please upload a JSON file first.", "warning")
+        flash("No analysis data available. Please upload ZIP files first.", "warning")
         return redirect(url_for("index"))
     
-    return render_template("analysis_results.html", analysis=ANALYSIS_DATA, has_decisions=bool(DECISIONS_DATA))
+    return render_template("analysis_results.html", 
+                         analysis=ANALYSIS_DATA, 
+                         has_decisions=bool(DECISIONS_DATA),
+                         all_models=list(ALL_MODELS.keys()),
+                         current_model=CURRENT_MODEL)
 
 
 @app.route("/download_language_analysis_json")
@@ -2668,10 +2925,16 @@ def get_decision(stable_id):
     """API endpoint to get AI decision data by stable_id"""
     global DECISIONS_DATA
     
-    if not DECISIONS_DATA:
+    # Also check for model param
+    model_name = request.args.get('model', CURRENT_MODEL)
+    decisions = DECISIONS_DATA
+    if model_name and model_name in ALL_MODELS:
+        decisions = ALL_MODELS[model_name]['decisions']
+    
+    if not decisions:
         return json.dumps({"error": "No decisions data loaded"}), 404, {'Content-Type': 'application/json'}
     
-    decision = DECISIONS_DATA.get(stable_id)
+    decision = decisions.get(stable_id)
     if not decision:
         return json.dumps({"error": f"Decision not found for stable_id: {stable_id}"}), 404, {'Content-Type': 'application/json'}
     

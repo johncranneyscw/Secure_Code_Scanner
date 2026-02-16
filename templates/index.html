@@ -2,6 +2,20 @@
 
 <div class="row justify-content-center">
   <div class="col-lg-10">
+    {% if num_models > 0 %}
+    <div class="alert mb-4" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.1)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px;">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <strong class="text-accent">📦 {{ num_models }} model{{ 's' if num_models != 1 else '' }} loaded</strong>
+          <span class="text-muted ms-2">— View results or upload more</span>
+        </div>
+        <a href="{{ url_for('model_select') }}" class="btn btn-primary btn-sm">
+          🔬 View Models Dashboard
+        </a>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Mode Selection Card -->
     <div class="card glass-card shadow-lg border-0 mb-4">
       <div class="card-body p-4">
@@ -114,63 +128,46 @@
       </div>
     </div>
 
-    <!-- ANALYSIS MODE: JSON Upload -->
+    <!-- ANALYSIS MODE: ZIP Upload -->
     <div class="card glass-card shadow-lg border-0" id="analysis-mode-card" style="display: none;">
       <div class="card-body p-4">
-        <h2 class="h5 mb-3 text-accent">📊 Analysis Mode: Upload Results JSON</h2>
+        <h2 class="h5 mb-3 text-accent">📊 Analysis Mode: Upload Model ZIPs</h2>
         
-        <p class="text-muted small mb-4">
-          Upload a consolidated results JSON file (e.g., <code>consolidated_all_runs_10_runs_verdicted.json</code>) to analyze:
-        </p>
-
         <div class="alert alert-info mb-4">
-          <strong>📈 Analysis Features:</strong>
+          <strong>📦 ZIP Contents (per model):</strong>
           <ul class="mb-0 small">
-            <li><strong>Language-wise CWE grouping</strong> - CWEs grouped by programming language based on file extensions</li>
-            <li><strong>File impact analysis</strong> - Shows how many files each CWE affects across all runs</li>
-            <li><strong>Verdict tracking</strong> - Distinguishes between true positives and false positives</li>
-            <li><strong>Cross-run comparison</strong> - Analyzes CWE patterns across multiple runs</li>
-            <li><strong>Tool correlation</strong> - Shows which tools detected each CWE</li>
+            <li><code>*verdicted*.json</code> — Consolidated scan results with TP/FP verdicts <strong>(required)</strong></li>
+            <li><code>*decisions*.json</code> — AI decision reasoning JSONL <strong>(optional)</strong></li>
           </ul>
         </div>
 
         <form id="json-upload-form" action="{{ url_for('upload_json') }}" method="post" enctype="multipart/form-data">
-          <div class="mb-3">
-            <label for="results_json" class="form-label">
-              Select Results JSON File (Verdicted)
-            </label>
-            <input
-              class="form-control"
-              type="file"
-              id="results_json"
-              name="results_json"
-              accept=".json"
-              required
-            />
-            <div class="form-text">
-              Upload a JSON file containing scan results with verdicts from multiple runs
+          <!-- Hidden file input that collects all files -->
+          <input type="file" id="model_zips_hidden" accept=".zip,application/zip" multiple="multiple" style="display: none;" />
+
+          <!-- Drop zone / Add button -->
+          <div id="drop-zone" class="mb-3 p-4 text-center rounded"
+               style="border: 2px dashed rgba(148, 163, 184, 0.3); background: rgba(15, 23, 42, 0.4); transition: all 0.3s ease; cursor: pointer; min-height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <div id="drop-zone-prompt">
+              <div style="font-size: 2rem;">📦</div>
+              <div class="text-muted mt-1">Drag & drop ZIP files here, or click to browse</div>
+              <div class="text-muted small mt-1">Add from multiple folders — files accumulate below</div>
             </div>
           </div>
 
-          <div class="mb-3">
-            <label for="decisions_json" class="form-label">
-              Select Decisions JSON File <span class="badge bg-info text-dark">Optional</span>
-            </label>
-            <input
-              class="form-control"
-              type="file"
-              id="decisions_json"
-              name="decisions_json"
-              accept=".json"
-            />
-            <div class="form-text">
-              Upload the AI decisions JSONL file to see <strong>why</strong> each finding was classified as TP/FP.
-              Enables clickable verdict badges with detailed AI reasoning.
+          <!-- File list -->
+          <div id="zip-file-list" class="mb-3" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <small class="text-accent fw-bold"><span id="zip-count">0</span> ZIP file(s) ready to upload:</small>
+              <button type="button" class="btn btn-outline-danger btn-sm" style="font-size: 0.7rem; padding: 2px 8px;" onclick="clearAllFiles()">
+                ✕ Clear All
+              </button>
             </div>
+            <div id="zip-file-names" class="d-flex flex-wrap gap-1"></div>
           </div>
 
-          <button class="btn btn-accent w-100" type="submit" id="json-upload-btn">
-            📤 Upload & Analyze JSON
+          <button class="btn btn-accent w-100" type="submit" id="json-upload-btn" disabled>
+            📤 Upload & Analyze (<span id="upload-count">0</span> files)
           </button>
         </form>
       </div>
@@ -210,13 +207,139 @@
     });
   }
 
-  const jsonInput = document.getElementById("results_json");
-  if (jsonInput) {
-    jsonInput.addEventListener("change", function() {
-      if (this.files.length > 0) {
-        console.log(`Selected: ${this.files[0].name}`);
-      }
+  const jsonInput = document.getElementById("model_zips_hidden");
+  const dropZone = document.getElementById("drop-zone");
+  
+  // Accumulated files from multiple selections/drops
+  let collectedFiles = [];
+  
+  if (dropZone && jsonInput) {
+    // Click to browse
+    dropZone.addEventListener("click", function() {
+      jsonInput.click();
     });
+    
+    // File input change — ADD to collection (don't replace)
+    jsonInput.addEventListener("change", function() {
+      for (const file of this.files) {
+        if (file.name.toLowerCase().endsWith('.zip') && !collectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+          collectedFiles.push(file);
+        }
+      }
+      // Reset input so same file can be re-selected if removed
+      this.value = '';
+      updateFileList();
+    });
+    
+    // Drag & drop
+    dropZone.addEventListener("dragover", function(e) {
+      e.preventDefault();
+      dropZone.style.borderColor = '#6366f1';
+      dropZone.style.background = 'rgba(99, 102, 241, 0.1)';
+    });
+    
+    dropZone.addEventListener("dragleave", function(e) {
+      e.preventDefault();
+      dropZone.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+      dropZone.style.background = 'rgba(15, 23, 42, 0.4)';
+    });
+    
+    dropZone.addEventListener("drop", function(e) {
+      e.preventDefault();
+      dropZone.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+      dropZone.style.background = 'rgba(15, 23, 42, 0.4)';
+      
+      for (const file of e.dataTransfer.files) {
+        if (file.name.toLowerCase().endsWith('.zip') && !collectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+          collectedFiles.push(file);
+        }
+      }
+      updateFileList();
+    });
+    
+    // Override form submit to inject collected files
+    document.getElementById("json-upload-form").addEventListener("submit", function(e) {
+      if (collectedFiles.length === 0) {
+        e.preventDefault();
+        alert("Please add at least one ZIP file.");
+        return;
+      }
+      
+      // Create a new FormData with all collected files
+      e.preventDefault();
+      const formData = new FormData();
+      collectedFiles.forEach(f => formData.append("model_zips", f));
+      
+      // Show loading state
+      const btn = document.getElementById("json-upload-btn");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing ' + collectedFiles.length + ' file(s)...';
+      
+      fetch("{{ url_for('upload_json') }}", {
+        method: "POST",
+        body: formData
+      }).then(response => {
+        // Follow the redirect
+        window.location.href = response.url;
+      }).catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '📤 Upload & Analyze (' + collectedFiles.length + ' files)';
+        alert("Upload failed: " + err.message);
+      });
+    });
+  }
+  
+  function updateFileList() {
+    const listDiv = document.getElementById("zip-file-list");
+    const namesDiv = document.getElementById("zip-file-names");
+    const countEl = document.getElementById("zip-count");
+    const uploadCountEl = document.getElementById("upload-count");
+    const btn = document.getElementById("json-upload-btn");
+    
+    if (collectedFiles.length > 0) {
+      listDiv.style.display = "block";
+      namesDiv.innerHTML = "";
+      
+      collectedFiles.forEach(function(file, idx) {
+        const wrapper = document.createElement("span");
+        wrapper.className = "badge bg-secondary d-inline-flex align-items-center gap-1 me-1 mb-1";
+        wrapper.style.fontSize = "0.8rem";
+        wrapper.style.padding = "5px 8px";
+        
+        const text = document.createElement("span");
+        text.textContent = "📦 " + file.name + " (" + (file.size / 1024).toFixed(0) + " KB)";
+        
+        const removeBtn = document.createElement("span");
+        removeBtn.textContent = "✕";
+        removeBtn.style.cursor = "pointer";
+        removeBtn.style.marginLeft = "6px";
+        removeBtn.style.color = "#ef4444";
+        removeBtn.style.fontWeight = "bold";
+        removeBtn.onclick = function(e) {
+          e.stopPropagation();
+          collectedFiles.splice(idx, 1);
+          updateFileList();
+        };
+        
+        wrapper.appendChild(text);
+        wrapper.appendChild(removeBtn);
+        namesDiv.appendChild(wrapper);
+      });
+      
+      countEl.textContent = collectedFiles.length;
+      uploadCountEl.textContent = collectedFiles.length;
+      btn.disabled = false;
+    } else {
+      listDiv.style.display = "none";
+      countEl.textContent = "0";
+      uploadCountEl.textContent = "0";
+      btn.disabled = true;
+    }
+  }
+  
+  function clearAllFiles() {
+    collectedFiles = [];
+    updateFileList();
   }
 </script>
 

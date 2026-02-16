@@ -1,6 +1,27 @@
 {% extends "base.html" %} {% block content %}
 
 <div class="container mt-4">
+  <!-- Model Switcher Bar (only if multiple models loaded) -->
+  {% if all_models and all_models|length > 1 %}
+  <div class="card border-0 mb-3" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.05)); border: 1px solid rgba(99, 102, 241, 0.2) !important; border-radius: 10px;">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <small class="text-muted me-1">📦 Models:</small>
+        {% for model in all_models %}
+        <a href="{{ url_for('analysis_results', model=model) }}" 
+           class="btn btn-sm {{ 'btn-primary' if model == current_model else 'btn-outline-secondary' }}"
+           style="font-size: 0.75rem; padding: 2px 10px;">
+          {{ model }}
+        </a>
+        {% endfor %}
+        <a href="{{ url_for('model_select') }}" class="btn btn-sm btn-outline-info ms-auto" style="font-size: 0.75rem;">
+          🔬 All Models
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Header with Project Name -->
   <div class="card glass-card shadow-lg border-0 mb-3">
     <div class="card-body p-3">
@@ -25,9 +46,15 @@
           <a href="{{ url_for('score_calculation') }}" class="btn btn-info btn-sm">
             🔬 Score Calculations
           </a>
+          {% if all_models and all_models|length > 1 %}
+          <a href="{{ url_for('model_select') }}" class="btn btn-outline-light btn-sm">
+            ⬅️ All Models
+          </a>
+          {% else %}
           <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">
             ⬅️ Back to Home
           </a>
+          {% endif %}
           <a href="{{ url_for('download_language_analysis_json') }}" class="btn btn-primary btn-sm">
             📥 Download JSON
           </a>
@@ -588,12 +615,15 @@
 
           <!-- CWE Details Table -->
           <div class="table-responsive">
-            <table class="table table-dark table-hover">
+            <table class="table table-dark table-hover cwe-table" id="cwe-table-{{ lang_name }}">
               <thead>
                 <tr>
                   <th>CWE</th>
                   <th>Name</th>
-                  <th>Risk Score</th>
+                  <th class="sortable-header" style="cursor: pointer; user-select: none; white-space: nowrap;" 
+                      onclick="sortTable('cwe-table-{{ lang_name }}', 2, this)">
+                    Risk Score <span class="sort-icon">▼</span>
+                  </th>
                   <th>Severity</th>
                   <th>Files Affected</th>
                   <th>Verdicts</th>
@@ -607,17 +637,17 @@
                 <tr>
                   <td><code>{{ cwe_id }}</code></td>
                   <td><small>{{ cwe_info.cwe_name }}</small></td>
-                  <td>
-                    {% if analysis.risk_scores and cwe_id in analysis.risk_scores %}
+                  <td data-sort-value="{{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_score if (analysis.risk_scores_by_language and lang_name in analysis.risk_scores_by_language and cwe_id in analysis.risk_scores_by_language[lang_name]) else -1 }}">
+                    {% if analysis.risk_scores_by_language and lang_name in analysis.risk_scores_by_language and cwe_id in analysis.risk_scores_by_language[lang_name] %}
                     <div class="d-flex align-items-center">
-                      <span class="badge bg-{{ analysis.risk_scores[cwe_id].risk_color }} me-2" style="font-size: 0.9rem; min-width: 50px; color: #ffffff !important;">
-                        {{ analysis.risk_scores[cwe_id].risk_score }}
+                      <span class="badge bg-{{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_color }} me-2" style="font-size: 0.9rem; min-width: 50px; color: #ffffff !important;">
+                        {{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_score }}
                       </span>
                       <small class="text-muted" 
                              data-bs-toggle="tooltip" 
                              data-bs-placement="top"
-                             title="V={{ analysis.risk_scores[cwe_id].V }}, I={{ analysis.risk_scores[cwe_id].I }}, L={{ analysis.risk_scores[cwe_id].L }}, Vol={{ analysis.risk_scores[cwe_id].Vol }}, C={{ analysis.risk_scores[cwe_id].C }}">
-                        <span class="badge bg-secondary" style="color: #ffffff;">{{ analysis.risk_scores[cwe_id].risk_level }}</span>
+                             title="V={{ analysis.risk_scores_by_language[lang_name][cwe_id].V }}, I={{ analysis.risk_scores_by_language[lang_name][cwe_id].I }}, L={{ analysis.risk_scores_by_language[lang_name][cwe_id].L }}, Vol={{ analysis.risk_scores_by_language[lang_name][cwe_id].Vol }}, C={{ analysis.risk_scores_by_language[lang_name][cwe_id].C }}">
+                        <span class="badge bg-secondary" style="color: #ffffff;">{{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_level }}</span>
                       </small>
                     </div>
                     {% else %}
@@ -839,15 +869,15 @@
                     <div class="p-3 rounded" style="background-color: rgba(51, 65, 85, 0.8); border: 1px solid rgba(148, 163, 184, 0.3);">
                       
                       <!-- Risk Score Breakdown -->
-                      {% if analysis.risk_scores and cwe_id in analysis.risk_scores %}
+                      {% if analysis.risk_scores_by_language and lang_name in analysis.risk_scores_by_language and cwe_id in analysis.risk_scores_by_language[lang_name] %}
                       <div class="mb-4 p-3 rounded" style="background-color: rgba(71, 85, 105, 0.3); border: 2px solid rgba(99, 102, 241, 0.4);">
                         <h6 class="text-warning mb-3">📊 Risk Score Breakdown</h6>
                         <div class="row">
                           <div class="col-md-3 text-center">
-                            <div class="mb-2" style="font-size: 2rem; font-weight: bold; color: #{{ 'ef4444' if analysis.risk_scores[cwe_id].risk_score >= 80 else ('f59e0b' if analysis.risk_scores[cwe_id].risk_score >= 60 else ('3b82f6' if analysis.risk_scores[cwe_id].risk_score >= 40 else '6b7280')) }};">
-                              {{ analysis.risk_scores[cwe_id].risk_score }}
+                            <div class="mb-2" style="font-size: 2rem; font-weight: bold; color: #{{ 'ef4444' if analysis.risk_scores_by_language[lang_name][cwe_id].risk_score >= 80 else ('f59e0b' if analysis.risk_scores_by_language[lang_name][cwe_id].risk_score >= 60 else ('3b82f6' if analysis.risk_scores_by_language[lang_name][cwe_id].risk_score >= 40 else '6b7280')) }};">
+                              {{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_score }}
                             </div>
-                            <span class="badge bg-{{ analysis.risk_scores[cwe_id].risk_color }}">{{ analysis.risk_scores[cwe_id].risk_level }}</span>
+                            <span class="badge bg-{{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_color }}">{{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_level }}</span>
                           </div>
                           <div class="col-md-9">
                             <table class="table table-sm table-dark table-bordered mb-0">
@@ -861,34 +891,34 @@
                               <tbody>
                                 <tr>
                                   <td><strong>V</strong> (Validation)</td>
-                                  <td><code>{{ analysis.risk_scores[cwe_id].V }}</code></td>
-                                  <td><small>{{ 'Has TPs' if analysis.risk_scores[cwe_id].V == 1 else 'No TPs' }}</small></td>
+                                  <td><code>{{ analysis.risk_scores_by_language[lang_name][cwe_id].V }}</code></td>
+                                  <td><small>{{ 'Has TPs' if analysis.risk_scores_by_language[lang_name][cwe_id].V == 1 else 'No TPs' }}</small></td>
                                 </tr>
                                 <tr>
                                   <td><strong>I</strong> (Impact)</td>
-                                  <td><code>{{ analysis.risk_scores[cwe_id].I }}</code></td>
+                                  <td><code>{{ analysis.risk_scores_by_language[lang_name][cwe_id].I }}</code></td>
                                   <td><small>Severity-based impact</small></td>
                                 </tr>
                                 <tr>
                                   <td><strong>L</strong> (Likelihood)</td>
-                                  <td><code>{{ analysis.risk_scores[cwe_id].L }}</code></td>
-                                  <td><small>{{ (analysis.risk_scores[cwe_id].L * 100)|round|int }}% of runs</small></td>
+                                  <td><code>{{ analysis.risk_scores_by_language[lang_name][cwe_id].L }}</code></td>
+                                  <td><small>{{ (analysis.risk_scores_by_language[lang_name][cwe_id].L * 100)|round|int }}% of runs</small></td>
                                 </tr>
                                 <tr>
                                   <td><strong>Vol</strong> (Volume)</td>
-                                  <td><code>{{ analysis.risk_scores[cwe_id].Vol }}</code></td>
-                                  <td><small>log₁₀({{ analysis.risk_scores[cwe_id].tp_file_count if 'tp_file_count' in analysis.risk_scores[cwe_id] else '?' }} files + 1)</small></td>
+                                  <td><code>{{ analysis.risk_scores_by_language[lang_name][cwe_id].Vol }}</code></td>
+                                  <td><small>log₁₀({{ analysis.risk_scores_by_language[lang_name][cwe_id].tp_file_count if 'tp_file_count' in analysis.risk_scores_by_language[lang_name][cwe_id] else '?' }} files + 1)</small></td>
                                 </tr>
                                 <tr>
                                   <td><strong>C</strong> (Confidence)</td>
-                                  <td><code>{{ analysis.risk_scores[cwe_id].C }}</code></td>
-                                  <td><small>{{ analysis.risk_scores[cwe_id].tools_count }} tool(s)</small></td>
+                                  <td><code>{{ analysis.risk_scores_by_language[lang_name][cwe_id].C }}</code></td>
+                                  <td><small>{{ analysis.risk_scores_by_language[lang_name][cwe_id].tools_count }} tool(s)</small></td>
                                 </tr>
                                 <tr class="table-success">
                                   <td colspan="3">
                                     <strong>Formula:</strong> 
                                     <code class="text-info">
-                                      {{ analysis.risk_scores[cwe_id].V }} × {{ analysis.risk_scores[cwe_id].I }} × {{ analysis.risk_scores[cwe_id].L }} × {{ analysis.risk_scores[cwe_id].Vol }} × {{ analysis.risk_scores[cwe_id].C }} × 100 = {{ analysis.risk_scores[cwe_id].risk_score }}
+                                      {{ analysis.risk_scores_by_language[lang_name][cwe_id].V }} × {{ analysis.risk_scores_by_language[lang_name][cwe_id].I }} × {{ analysis.risk_scores_by_language[lang_name][cwe_id].L }} × {{ analysis.risk_scores_by_language[lang_name][cwe_id].Vol }} × {{ analysis.risk_scores_by_language[lang_name][cwe_id].C }} × 100 = {{ analysis.risk_scores_by_language[lang_name][cwe_id].risk_score }}
                                     </code>
                                   </td>
                                 </tr>
@@ -897,9 +927,9 @@
                           </div>
                         </div>
                         <div class="mt-2 small text-muted">
-                          <strong>TP:</strong> {{ analysis.risk_scores[cwe_id].tp_count }} | 
-                          <strong>FP:</strong> {{ analysis.risk_scores[cwe_id].fp_count }} | 
-                          <strong>Runs:</strong> {{ analysis.risk_scores[cwe_id].runs_count }}/{{ analysis.metadata.total_runs }}
+                          <strong>TP:</strong> {{ analysis.risk_scores_by_language[lang_name][cwe_id].tp_count }} | 
+                          <strong>FP:</strong> {{ analysis.risk_scores_by_language[lang_name][cwe_id].fp_count }} | 
+                          <strong>Runs:</strong> {{ analysis.risk_scores_by_language[lang_name][cwe_id].runs_count }}/{{ analysis.metadata.total_runs }}
                         </div>
                       </div>
                       {% endif %}
@@ -1011,6 +1041,25 @@
     transition: all 0.2s ease;
     position: relative;
   }
+
+  /* Sortable header styles */
+  .sortable-header {
+    transition: color 0.2s ease;
+  }
+  
+  .sortable-header:hover {
+    color: #6366f1 !important;
+  }
+  
+  .sort-icon {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin-left: 4px;
+  }
+  
+  .sortable-header:hover .sort-icon {
+    opacity: 1;
+  }
   
   .decision-badge:hover {
     transform: scale(1.08);
@@ -1064,7 +1113,72 @@
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
       return new bootstrap.Tooltip(tooltipTriggerEl);
     });
+    
+    // Auto-sort all CWE tables by Risk Score descending on page load
+    document.querySelectorAll('.cwe-table').forEach(function(table) {
+      const header = table.querySelector('.sortable-header');
+      if (header) {
+        sortTable(table.id, 2, header, 'desc');
+      }
+    });
   });
+
+  // Table sorting function
+  function sortTable(tableId, colIndex, headerEl, forceDirection) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector('tbody');
+    
+    // Get all content rows (skip detail/expand rows)
+    const allRows = Array.from(tbody.querySelectorAll('tr'));
+    
+    // Group: each CWE has a main row + potentially a detail row (next sibling with colspan)
+    const rowGroups = [];
+    for (let i = 0; i < allRows.length; i++) {
+      const row = allRows[i];
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= colIndex + 1 && cells[colIndex].hasAttribute('data-sort-value')) {
+        // This is a main CWE row — collect it and any following detail rows
+        const group = [row];
+        // Check subsequent rows that are detail/expand rows (they have colspan or no data-sort-value)
+        let j = i + 1;
+        while (j < allRows.length) {
+          const nextRow = allRows[j];
+          const nextCells = nextRow.querySelectorAll('td');
+          if (nextCells.length >= colIndex + 1 && nextCells[colIndex].hasAttribute('data-sort-value')) {
+            break; // Next main row
+          }
+          group.push(nextRow);
+          j++;
+        }
+        rowGroups.push(group);
+        i = j - 1;
+      }
+    }
+    
+    // Determine sort direction
+    const icon = headerEl.querySelector('.sort-icon');
+    let direction;
+    if (forceDirection) {
+      direction = forceDirection;
+    } else {
+      direction = icon.textContent === '▼' ? 'asc' : 'desc';
+    }
+    icon.textContent = direction === 'desc' ? '▼' : '▲';
+    
+    // Sort row groups by the sort value
+    rowGroups.sort(function(a, b) {
+      const aVal = parseFloat(a[0].querySelectorAll('td')[colIndex].getAttribute('data-sort-value')) || -1;
+      const bVal = parseFloat(b[0].querySelectorAll('td')[colIndex].getAttribute('data-sort-value')) || -1;
+      return direction === 'desc' ? bVal - aVal : aVal - bVal;
+    });
+    
+    // Re-append rows in sorted order
+    rowGroups.forEach(function(group) {
+      group.forEach(function(row) {
+        tbody.appendChild(row);
+      });
+    });
+  }
 
   {% if has_decisions %}
   // Decision modal logic
@@ -1082,7 +1196,7 @@
     modal.show();
     
     // Fetch decision data
-    fetch('/api/decision/' + stableId)
+    fetch('/api/decision/' + stableId + '?model={{ current_model|default("", true) }}')
       .then(response => response.json())
       .then(data => {
         if (data.error) {
