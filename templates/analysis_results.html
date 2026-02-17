@@ -128,388 +128,108 @@
     </div>
   </div>
 
-  <!-- MODEL SECURITY SCORE SECTION -->
+
+  <!-- CWE SEVERITY COUNTS + CALCULATION BREAKDOWN -->
   {% if analysis.model_score %}
   <div class="card glass-card shadow-lg border-0 mb-4">
     <div class="card-body p-4">
-      <h2 class="h5 mb-3 text-accent">🎯 Model Security Score</h2>
-      
-      <!-- Overall Score Display -->
-      <div class="row mb-4">
-        <div class="col-md-4">
-          <div class="text-center p-4 rounded" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1)); border: 2px solid rgba(99, 102, 241, 0.3);">
-            <div style="font-size: 3rem; font-weight: bold; color: #{{ '22c55e' if analysis.model_score.final_score >= 80 else ('3b82f6' if analysis.model_score.final_score >= 60 else ('f59e0b' if analysis.model_score.final_score >= 40 else 'ef4444')) }};">
-              {{ analysis.model_score.final_score }}
-            </div>
-            <div class="text-muted small">out of 100</div>
-            <div class="mt-2">
-              <span class="badge bg-{{ analysis.model_score.color }}" style="font-size: 1rem; padding: 0.5rem 1rem;">
-                {{ analysis.model_score.rating }}
-              </span>
-            </div>
+
+      <!-- Severity Counts -->
+      <h2 class="h5 mb-3 text-accent">📊 CWE Severity Distribution</h2>
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+          <div class="stat-card">
+            <div class="stat-value text-danger">{{ analysis.model_score.metrics.critical_cwes }}</div>
+            <div class="stat-label">Critical CWEs</div>
           </div>
         </div>
-        
-        <div class="col-md-8">
-          <div class="alert alert-info mb-0" style="background-color: #0ea5e9; color: #ffffff;">
-            <h6 class="alert-heading" style="color: #ffffff; font-weight: bold;">📊 Model Security Score Interpretation (Higher = BETTER)</h6>
-            <div class="small" style="color: #ffffff;">
-              <strong>80-100 (EXCELLENT):</strong> Very few security issues, production-ready ✅<br>
-              <strong>60-79 (GOOD):</strong> Acceptable security with minor issues 👍<br>
-              <strong>40-59 (FAIR):</strong> Moderate security concerns, needs improvement ⚠️<br>
-              <strong>20-39 (POOR):</strong> Significant security problems, major remediation needed ⛔<br>
-              <strong>0-19 (CRITICAL):</strong> Severe security issues, unsuitable for production 🚨
-            </div>
-            <hr style="border-color: rgba(255,255,255,0.3);">
-            <div class="small" style="color: #ffffff;">
-              <strong>Note:</strong> This is the <em>overall model security score</em> (higher = better security).<br>
-              Individual CWE <em>risk scores</em> work oppositely (higher = worse vulnerability).
-            </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card">
+            <div class="stat-value text-warning">{{ analysis.model_score.metrics.high_cwes }}</div>
+            <div class="stat-label">High CWEs</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card">
+            <div class="stat-value text-info">{{ analysis.model_score.metrics.medium_cwes }}</div>
+            <div class="stat-label">Medium CWEs</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="stat-card">
+            <div class="stat-value text-success">{{ analysis.model_score.metrics.low_cwes }}</div>
+            <div class="stat-label">Low CWEs</div>
           </div>
         </div>
       </div>
 
-      <!-- Score Components Breakdown -->
-      <div class="mb-4">
-        <h6 class="text-muted mb-3">📈 Score Components</h6>
-        <div class="row">
-          <div class="col-md-6 mb-3">
-            <div class="card bg-dark">
-              <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                  <span class="text-light">Composite Risk</span>
-                  <span class="badge bg-danger">{{ analysis.model_score.components.composite_risk }}</span>
-                </div>
-                <div class="progress mt-2" style="height: 8px;">
-                  <div class="progress-bar bg-danger" role="progressbar" 
-                       style="width: {{ analysis.model_score.components.composite_risk }}%"></div>
-                </div>
-                <small class="text-muted">Weight: 70%</small>
-              </div>
-            </div>
-          </div>
-          
-          <div class="col-md-6 mb-3">
-            <div class="card bg-dark">
-              <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                  <span class="text-light">Density Score</span>
-                  <span class="badge bg-success">{{ analysis.model_score.components.density_score }}</span>
-                </div>
-                <div class="progress mt-2" style="height: 8px;">
-                  <div class="progress-bar bg-success" role="progressbar" 
-                       style="width: {{ analysis.model_score.components.density_score }}%"></div>
-                </div>
-                <small class="text-muted">Weight: 30%</small>
-              </div>
-            </div>
-          </div>
+      <!-- CWE Risk Score Calculation Explanation -->
+      <h5 class="text-accent mb-3">🧮 How CWE Risk Scores Are Calculated</h5>
+      <div class="p-3 rounded mb-3" style="background: rgba(15,23,42,0.5); border: 2px solid rgba(99,102,241,0.3);">
+        <div class="mb-2" style="font-family: 'Courier New', monospace; font-size: 0.9rem; color: #e2e8f0;">
+          <strong style="color: #c4b5fd;">Risk Score</strong> <span style="color: #94a3b8;">=</span>
+          <span style="color: #818cf8;">V</span> <span style="color: #94a3b8;">×</span>
+          <span style="color: #fbbf24;">I</span> <span style="color: #94a3b8;">×</span>
+          <span style="color: #4ade80;">L</span> <span style="color: #94a3b8;">×</span>
+          <span style="color: #22d3ee;">Vol</span> <span style="color: #94a3b8;">×</span>
+          <span style="color: #e879f9;">C</span> <span style="color: #94a3b8;">× 100</span>
+          <span style="color: #64748b;"> (capped at 100)</span>
         </div>
+        <table class="table table-sm table-dark table-bordered mb-0 mt-3" style="font-size: 0.82rem;">
+          <thead>
+            <tr style="background: rgba(51,65,85,0.5);">
+              <th style="color: #a1a1aa; width: 120px;">Factor</th>
+              <th style="color: #a1a1aa;">Description</th>
+              <th style="color: #a1a1aa; width: 220px;">Values</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color: #818cf8;">V</strong> (Validation)</td>
+              <td style="color: #cbd5e1;">Does a real vulnerability exist?</td>
+              <td style="color: #cbd5e1;">1 if any TP exists, 0 otherwise</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #fbbf24;">I</strong> (Impact)</td>
+              <td style="color: #cbd5e1;">How dangerous is this CWE type?</td>
+              <td style="color: #cbd5e1;">CRITICAL=1.0, HIGH=0.8, MEDIUM=0.6, LOW=0.4</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #4ade80;">L</strong> (Likelihood)</td>
+              <td style="color: #cbd5e1;">How often does the model produce it?</td>
+              <td style="color: #cbd5e1;">Runs with TP / Total runs</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #22d3ee;">Vol</strong> (Volume)</td>
+              <td style="color: #cbd5e1;">How many files are affected?</td>
+              <td style="color: #cbd5e1;">log₁₀(TP_file_count + 1)</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #e879f9;">C</strong> (Confidence)</td>
+              <td style="color: #cbd5e1;">How many tools agree?</td>
+              <td style="color: #cbd5e1;">1 tool=0.7, 2=0.85, 3+=1.0</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <!-- Key Metrics -->
-      <div class="mb-4">
-        <h6 class="text-muted mb-3">📊 Key Metrics (By Actual Severity from Scanners)</h6>
-        <div class="row">
-          <div class="col-md-3 col-sm-6 mb-2">
-            <div class="stat-card bg-danger bg-opacity-10">
-              <div class="stat-value text-danger">{{ analysis.model_score.metrics.critical_cwes }}</div>
-              <div class="stat-label">Critical CWEs</div>
-              <small class="text-muted">Severity: CRITICAL</small>
-            </div>
-          </div>
-          <div class="col-md-3 col-sm-6 mb-2">
-            <div class="stat-card bg-warning bg-opacity-10">
-              <div class="stat-value text-warning">{{ analysis.model_score.metrics.high_cwes }}</div>
-              <div class="stat-label">High CWEs</div>
-              <small class="text-muted">Severity: HIGH/ERROR</small>
-            </div>
-          </div>
-          <div class="col-md-3 col-sm-6 mb-2">
-            <div class="stat-card bg-info bg-opacity-10">
-              <div class="stat-value text-info">{{ analysis.model_score.metrics.medium_cwes }}</div>
-              <div class="stat-label">Medium CWEs</div>
-              <small class="text-muted">Severity: MEDIUM/WARNING</small>
-            </div>
-          </div>
-          <div class="col-md-3 col-sm-6 mb-2">
-            <div class="stat-card bg-success bg-opacity-10">
-              <div class="stat-value text-success">{{ analysis.model_score.metrics.low_cwes }}</div>
-              <div class="stat-label">Low CWEs</div>
-              <small class="text-muted">Severity: LOW/INFO</small>
-            </div>
-          </div>
-        </div>
-        <div class="row mt-2">
-          <div class="col-md-12">
-            <div class="stat-card bg-primary bg-opacity-10">
-              <div class="stat-value text-primary">{{ analysis.model_score.metrics.vulnerability_density }}</div>
-              <div class="stat-label">Vulnerability Density (per 1000 LOC)</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Scoring Methodology Toggle -->
-      <div class="accordion" id="scoringMethodology">
-        <div class="accordion-item bg-dark border-secondary">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed bg-dark text-light" type="button" 
-                    data-bs-toggle="collapse" data-bs-target="#methodologyDetails">
-              📖 Scoring Methodology (Click to Expand)
-            </button>
-          </h2>
-          <div id="methodologyDetails" class="accordion-collapse collapse" data-bs-parent="#scoringMethodology">
-            <div class="accordion-body bg-dark text-light">
-              
-              <!-- CWE-Level Scoring Formula -->
-              <div class="mb-4">
-                <h6 class="text-warning mb-3">🔢 CWE-Level Risk Score Formula</h6>
-                <div class="alert alert-dark border border-secondary">
-                  <code class="text-info" style="font-size: 1.1rem;">
-                    Risk Score = V × I × L × Vol × C × 100
-                  </code>
-                  <div class="mt-2 small text-muted">(Capped at 100)</div>
-                </div>
-                
-                <table class="table table-dark table-sm table-bordered mt-3">
-                  <thead>
-                    <tr>
-                      <th style="width: 15%;">Factor</th>
-                      <th style="width: 25%;">Name</th>
-                      <th style="width: 30%;">Formula/Range</th>
-                      <th style="width: 30%;">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>V</strong></td>
-                      <td>Validation Switch</td>
-                      <td><code>1 if TP exists, else 0</code></td>
-                      <td>Binary filter: Only CWEs with True Positives are scored (FP ignored)</td>
-                    </tr>
-                    <tr>
-                      <td><strong>I</strong></td>
-                      <td>Impact</td>
-                      <td><code>0.4 - 0.8</code></td>
-                      <td>Severity-based impact score (see mapping below)</td>
-                    </tr>
-                    <tr>
-                      <td><strong>L</strong></td>
-                      <td>Likelihood</td>
-                      <td><code>runs_with_TP / total_runs</code></td>
-                      <td>Percentage of runs where this CWE appeared (0-1 scale)</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Vol</strong></td>
-                      <td>Volume</td>
-                      <td><code>log₁₀(TP_file_count + 1)</code></td>
-                      <td>Log-scaled TP file count (measures systemic spread, not repetition)</td>
-                    </tr>
-                    <tr>
-                      <td><strong>C</strong></td>
-                      <td>Confidence</td>
-                      <td><code>0.7 - 1.0</code></td>
-                      <td>Cross-tool validation: 1 tool=0.7, 2 tools=0.85, 3+=1.0</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Severity to Impact Mapping -->
-              <div class="mb-4">
-                <h6 class="text-warning mb-3">⚠️ Complete Severity to Impact Mapping</h6>
-                <table class="table table-dark table-sm table-bordered">
-                  <thead>
-                    <tr>
-                      <th>Severity</th>
-                      <th>Scanner</th>
-                      <th>Impact (I)</th>
-                      <th>Rationale</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="table-danger">
-                      <td><span class="badge bg-danger">CRITICAL</span></td>
-                      <td>Any scanner</td>
-                      <td><strong>1.0</strong></td>
-                      <td>Maximum severity - immediate exploitation likely</td>
-                    </tr>
-                    <tr>
-                      <td><span class="badge bg-danger">HIGH</span></td>
-                      <td>Bearer, Bandit</td>
-                      <td><strong>0.8</strong></td>
-                      <td>Serious vulnerability, likely exploitable</td>
-                    </tr>
-                    <tr>
-                      <td><span class="badge bg-danger">ERROR</span></td>
-                      <td>Semgrep</td>
-                      <td><strong>0.8</strong></td>
-                      <td>Semgrep equivalent of HIGH</td>
-                    </tr>
-                    <tr>
-                      <td><span class="badge bg-warning text-dark">MEDIUM</span></td>
-                      <td>Bearer, Bandit</td>
-                      <td><strong>0.6</strong></td>
-                      <td>Potentially exploitable, should review</td>
-                    </tr>
-                    <tr>
-                      <td><span class="badge bg-warning text-dark">WARNING</span></td>
-                      <td>Semgrep</td>
-                      <td><strong>0.6</strong></td>
-                      <td>Semgrep equivalent of MEDIUM</td>
-                    </tr>
-                    <tr>
-                      <td><span class="badge bg-info text-dark">LOW</span></td>
-                      <td>Bearer, Bandit</td>
-                      <td><strong>0.4</strong></td>
-                      <td>Lower severity, informational</td>
-                    </tr>
-                    <tr>
-                      <td><span class="badge bg-info text-dark">INFO</span></td>
-                      <td>Semgrep</td>
-                      <td><strong>0.4</strong></td>
-                      <td>Semgrep equivalent of LOW</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div class="alert alert-secondary small">
-                  <strong>Note:</strong> All scanners' severity levels are normalized to a common impact scale (0.4-1.0). 
-                  Semgrep's ERROR/WARNING/INFO map to HIGH/MEDIUM/LOW per their documentation (backward compatible). 
-                  If a CRITICAL severity is reported by any scanner, it receives the maximum impact score of 1.0.
-                </div>
-              </div>
-
-              <!-- Model-Level Scoring Formula -->
-              <div class="mb-4">
-                <h6 class="text-warning mb-3">🎯 Model-Level Security Score Formula</h6>
-                
-                <div class="alert alert-dark border border-secondary">
-                  <div class="mb-2"><strong>Step 1: Calculate Composite Risk</strong></div>
-                  <code class="text-info d-block mb-2">
-                    Composite Risk = 0.4 × Top5_Avg + 0.3 × Weighted_Avg + 0.3 × Max_Risk
-                  </code>
-                  
-                  <div class="mt-3 mb-2"><strong>Step 2: Calculate Final Score</strong></div>
-                  <code class="text-info d-block mb-2">
-                    Final Score = (100 - Composite_Risk) × 0.7 + Density_Score × 0.3
-                  </code>
-                  
-                  <div class="mt-3 small text-muted">
-                    Where:<br>
-                    • <strong>Top5_Avg</strong> = Average risk score of top 5 CWEs<br>
-                    • <strong>Weighted_Avg</strong> = Σ(CWE_Score × TP_count) / Σ(TP_count)<br>
-                    • <strong>Max_Risk</strong> = Highest individual CWE risk score<br>
-                    • <strong>Density_Score</strong> = max(0, 100 - (weighted_density × 20))
-                  </div>
-                </div>
-
-                <table class="table table-dark table-sm table-bordered mt-3">
-                  <thead>
-                    <tr>
-                      <th>Component</th>
-                      <th>Value</th>
-                      <th>Weight</th>
-                      <th>Purpose</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>Top 5 CWE Average</td>
-                      <td>{{ analysis.model_score.components.critical_penalty }}</td>
-                      <td>40%</td>
-                      <td>Focus on most critical vulnerabilities</td>
-                    </tr>
-                    <tr>
-                      <td>Weighted Average Risk</td>
-                      <td>{{ analysis.model_score.components.weighted_avg_risk }}</td>
-                      <td>30%</td>
-                      <td>Overall vulnerability landscape</td>
-                    </tr>
-                    <tr>
-                      <td>Maximum Risk</td>
-                      <td>{{ analysis.model_score.components.max_risk }}</td>
-                      <td>30%</td>
-                      <td>Worst-case scenario (security ceiling)</td>
-                    </tr>
-                    <tr class="table-secondary">
-                      <td><strong>Composite Risk</strong></td>
-                      <td colspan="3"><strong>{{ analysis.model_score.components.composite_risk }}</strong></td>
-                    </tr>
-                    <tr>
-                      <td>Vulnerability Density</td>
-                      <td>{{ analysis.model_score.components.density_score }}</td>
-                      <td>30%</td>
-                      <td>Risk per 1000 lines of code</td>
-                    </tr>
-                    <tr class="table-success">
-                      <td><strong>Final Security Score</strong></td>
-                      <td colspan="3"><strong>{{ analysis.model_score.final_score }}/100</strong></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Calculation Example -->
-              <div class="mb-4">
-                <h6 class="text-warning mb-3">💡 Calculation Breakdown (This Model)</h6>
-                <div class="alert alert-dark border border-info">
-                  <div class="small font-monospace">
-                    <strong>Composite Risk Calculation:</strong><br>
-                    = 0.4 × {{ analysis.model_score.components.critical_penalty }} + 
-                      0.3 × {{ analysis.model_score.components.weighted_avg_risk }} + 
-                      0.3 × {{ analysis.model_score.components.max_risk }}<br>
-                    = {{ (analysis.model_score.components.critical_penalty * 0.4)|round(2) }} + 
-                      {{ (analysis.model_score.components.weighted_avg_risk * 0.3)|round(2) }} + 
-                      {{ (analysis.model_score.components.max_risk * 0.3)|round(2) }}<br>
-                    = <strong class="text-danger">{{ analysis.model_score.components.composite_risk }}</strong>
-                    
-                    <div class="mt-3">
-                      <strong>Final Score Calculation:</strong><br>
-                      = (100 - {{ analysis.model_score.components.composite_risk }}) × 0.7 + 
-                        {{ analysis.model_score.components.density_score }} × 0.3<br>
-                      = {{ ((100 - analysis.model_score.components.composite_risk) * 0.7)|round(2) }} + 
-                        {{ (analysis.model_score.components.density_score * 0.3)|round(2) }}<br>
-                      = <strong class="text-success">{{ analysis.model_score.final_score }}/100</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Important Notes -->
-              <div>
-                <h6 class="text-warning mb-3">⚠️ Important Notes for Research</h6>
-                <div class="alert alert-warning">
-                  <ul class="mb-0 small">
-                    <li><strong>Only True Positives count:</strong> False positives are excluded from all calculations (V=0 for FP-only CWEs)</li>
-                    <li><strong>Logarithmic volume scaling:</strong> Prevents high-volume issues from dominating the score unfairly</li>
-                    <li><strong>Severity mapping:</strong> Based on Semgrep's documentation (ERROR=HIGH, WARNING=MEDIUM, INFO=LOW)</li>
-                    <li><strong>Tool confidence:</strong> Multiple tools detecting the same issue increases confidence (C factor)</li>
-                    <li><strong>Score capping:</strong> Individual CWE scores capped at 100 to represent critical risk saturation</li>
-                    <li><strong>Reproducibility:</strong> Same JSON input will always produce the same score (deterministic)</li>
-                  </ul>
-                </div>
-              </div>
-
-              <!-- References -->
-              <div class="mt-3">
-                <h6 class="text-warning mb-2">📚 References</h6>
-                <div class="small text-muted">
-                  <strong>Scoring System:</strong> Scoring System v2 (Composite + Density methodology)<br>
-                  <strong>Semgrep Severity:</strong> Based on Semgrep official documentation<br>
-                  <strong>CWE Database:</strong> MITRE Common Weakness Enumeration<br>
-                  <strong>Implementation:</strong> See <code>calculate_risk_scores()</code> and <code>calculate_model_score()</code> in app.py
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
+      <!-- Important Notes -->
+      <div class="p-3 rounded" style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2);">
+        <h6 style="color: #fbbf24;">⚠ Important Notes for Research</h6>
+        <ul class="mb-0" style="font-size: 0.82rem; color: #cbd5e1;">
+          <li><strong style="color: #e2e8f0;">Only True Positives count:</strong> False positives are excluded from all calculations (V=0 for FP-only CWEs)</li>
+          <li><strong style="color: #e2e8f0;">Logarithmic volume scaling:</strong> Prevents high-volume issues from dominating the score unfairly</li>
+          <li><strong style="color: #e2e8f0;">Severity mapping:</strong> Based on Semgrep's documentation (ERROR=HIGH, WARNING=MEDIUM, INFO=LOW)</li>
+          <li><strong style="color: #e2e8f0;">Tool confidence:</strong> Multiple tools detecting the same issue increases confidence (C factor)</li>
+          <li><strong style="color: #e2e8f0;">Score capping:</strong> Individual CWE scores capped at 100 to represent critical risk saturation</li>
+          <li><strong style="color: #e2e8f0;">Reproducibility:</strong> Same JSON input will always produce the same score (deterministic)</li>
+        </ul>
       </div>
 
     </div>
   </div>
   {% endif %}
+
 
   <!-- Language Tabs -->
   <div class="card glass-card shadow-lg border-0 mb-4">

@@ -21,25 +21,6 @@
     text-decoration: none;
   }
   
-  .score-ring {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.4rem;
-    font-weight: bold;
-    border: 4px solid;
-    flex-shrink: 0;
-  }
-  
-  .score-excellent { border-color: #22c55e; color: #22c55e; background: rgba(34, 197, 94, 0.08); }
-  .score-good     { border-color: #3b82f6; color: #3b82f6; background: rgba(59, 130, 246, 0.08); }
-  .score-fair     { border-color: #f59e0b; color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
-  .score-poor     { border-color: #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.08); }
-  .score-critical { border-color: #dc2626; color: #dc2626; background: rgba(220, 38, 38, 0.08); }
-  
   .stat-pill {
     display: inline-flex;
     align-items: center;
@@ -74,6 +55,16 @@
     color: #e2e8f0;
     background: rgba(99, 102, 241, 0.05);
   }
+  .delete-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 5;
+    background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3);
+    color: #f87171; border-radius: 8px; padding: 4px 10px; font-size: 0.75rem;
+    cursor: pointer; transition: all 0.2s; opacity: 0;
+  }
+  .model-card-wrap:hover .delete-btn { opacity: 1; }
+  .delete-btn:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+  .model-card-wrap { position: relative; }
+
 </style>
 
 <div class="container py-4">
@@ -101,22 +92,16 @@
   <div class="row g-3">
     {% for model in models %}
     <div class="col-lg-6 col-xl-4">
-      <a href="{{ url_for('analysis_results', model=model.name) }}" class="model-card p-3">
+      <div class="model-card-wrap">
+        <button class="delete-btn" onclick="event.stopPropagation(); deleteModel('{{ model.name }}');" title="Remove model">🗑️ Remove</button>
+        <a href="{{ url_for('analysis_results', model=model.name) }}" class="model-card p-3">
         <div class="d-flex align-items-center gap-3">
-          <!-- Score Ring -->
-          <div class="score-ring score-{{ model.rating|lower }}">
-            {{ model.score }}
-          </div>
-          
           <!-- Model Info -->
           <div class="flex-grow-1 min-width-0">
             <h5 class="mb-1 text-light" style="font-size: 0.95rem; word-break: break-word;">
               {{ model.name }}
             </h5>
             <div class="mb-2">
-              <span class="badge bg-{{ model.color }}" style="font-size: 0.75rem;">
-                {{ model.rating }}
-              </span>
               {% if model.has_decisions %}
               <span class="badge bg-info" style="font-size: 0.7rem;">
                 🤖 {{ model.decisions_count }} decisions
@@ -135,6 +120,7 @@
           <div class="text-muted" style="font-size: 1.5rem;">›</div>
         </div>
       </a>
+      </div>
     </div>
     {% endfor %}
     
@@ -149,4 +135,28 @@
     </div>
   </div>
 </div>
+
+<script>
+function deleteModel(name) {
+  if (!confirm('Remove "' + name + '" from the loaded models?\n\nThis cannot be undone — you would need to re-upload the ZIP.')) return;
+  var form = new FormData();
+  form.append('model_name', name);
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/delete_model');
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      var data = JSON.parse(xhr.responseText);
+      if (data.remaining === 0) {
+        window.location.href = '{{ url_for("index") }}';
+      } else {
+        window.location.reload();
+      }
+    } else {
+      alert('Failed to delete model: ' + xhr.responseText);
+    }
+  };
+  xhr.onerror = function() { alert('Network error'); };
+  xhr.send(form);
+}
+</script>
 {% endblock %}

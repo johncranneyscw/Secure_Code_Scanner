@@ -1856,9 +1856,6 @@ def model_select():
         analysis = data['analysis']
         models_info.append({
             'name': name,
-            'score': analysis['model_score']['final_score'],
-            'rating': analysis['model_score']['rating'],
-            'color': analysis['model_score']['color'],
             'runs': analysis['metadata']['total_runs'],
             'findings': analysis['metadata']['total_findings'],
             'languages': analysis['metadata']['total_languages'],
@@ -1867,8 +1864,8 @@ def model_select():
             'decisions_count': len(data['decisions']),
         })
     
-    # Sort by score ascending (worst first — most vulnerable at top)
-    models_info.sort(key=lambda x: x['score'])
+    # Sort by name alphabetically
+    models_info.sort(key=lambda x: x['name'])
     
     return render_template("model_select.html", models=models_info)
 
@@ -1891,6 +1888,36 @@ def model_comparison():
     return render_template("model_comparison.html", 
                          all_models=ALL_MODELS,
                          all_languages=all_languages)
+
+
+@app.route("/api/delete_model", methods=["POST"])
+def api_delete_model():
+    """Delete a model from the loaded models"""
+    global ALL_MODELS, CURRENT_MODEL, ANALYSIS_DATA, DECISIONS_DATA
+    
+    model_name = request.form.get('model_name', '').strip()
+    if not model_name:
+        return json.dumps({'error': 'No model name provided'}), 400, {'Content-Type': 'application/json'}
+    
+    if model_name not in ALL_MODELS:
+        return json.dumps({'error': 'Model not found: ' + model_name}), 404, {'Content-Type': 'application/json'}
+    
+    del ALL_MODELS[model_name]
+    
+    # If we deleted the current model, switch to another or clear
+    if CURRENT_MODEL == model_name:
+        if ALL_MODELS:
+            set_current_model(list(ALL_MODELS.keys())[0])
+        else:
+            CURRENT_MODEL = None
+            ANALYSIS_DATA = None
+            DECISIONS_DATA = {}
+    
+    return json.dumps({
+        'success': True, 
+        'deleted': model_name, 
+        'remaining': len(ALL_MODELS)
+    }), 200, {'Content-Type': 'application/json'}
 
 
 @app.route("/api/comparison_data")
