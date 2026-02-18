@@ -134,10 +134,11 @@
         <h2 class="h5 mb-3 text-accent">📊 Analysis Mode: Upload Model ZIPs</h2>
         
         <div class="alert alert-info mb-4">
-          <strong>📦 ZIP Contents (per model):</strong>
+          <strong>📦 Supported ZIP formats:</strong>
           <ul class="mb-0 small">
-            <li><code>*verdicted*.json</code> — Consolidated scan results with TP/FP verdicts <strong>(required)</strong></li>
-            <li><code>*decisions*.json</code> — AI decision reasoning JSONL <strong>(optional)</strong></li>
+            <li><strong>Individual model ZIPs:</strong> Each ZIP has <code>*verdicted*.json</code> + optional <code>*decisions*.json</code></li>
+            <li><strong>Mega ZIP (all models in one):</strong> A single ZIP with subfolders per model, each containing verdicted + decisions JSON</li>
+            <li><strong>Nested ZIPs:</strong> A ZIP containing multiple model ZIPs inside</li>
           </ul>
         </div>
 
@@ -151,7 +152,7 @@
             <div id="drop-zone-prompt">
               <div style="font-size: 2rem;">📦</div>
               <div class="text-muted mt-1">Drag & drop ZIP files here, or click to browse</div>
-              <div class="text-muted small mt-1">Add from multiple folders — files accumulate below</div>
+              <div class="text-muted small mt-1">Supports: individual model ZIPs, mega ZIP with folders, or nested ZIPs</div>
             </div>
           </div>
 

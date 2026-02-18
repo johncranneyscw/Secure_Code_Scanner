@@ -1626,7 +1626,12 @@ def scan_progress(scan_id):
 
 @app.route("/upload_json", methods=["POST"])
 def upload_json():
-    """Upload multiple ZIP files, each containing verdicted + decisions JSON for one model"""
+    """Upload ZIP files — supports:
+    1. Multiple individual ZIPs (one per model, each with verdicted + decisions JSON)
+    2. A single mega ZIP containing:
+       a. Sub-folders per model (each with verdicted + decisions JSON)
+       b. Nested ZIPs per model
+    """
     global ALL_MODELS, CURRENT_MODEL, ANALYSIS_DATA, DECISIONS_DATA
     
     zip_files = request.files.getlist("model_zips")
@@ -1644,82 +1649,22 @@ def upload_json():
     models_processed = []
     errors = []
     
-    for zip_file in zip_files:
-        if zip_file.filename == "":
-            continue
-        if not allowed_zip_file(zip_file.filename):
-            errors.append(f"{zip_file.filename}: Not a .zip file, skipped")
-            continue
-        
+    def process_model_pair(verdicted_content, decisions_content, source_label, model_name_hint=""):
+        """Process a single model's verdicted + decisions pair. Returns (model_info, error)."""
         try:
-            import zipfile
-            import io
-            
-            zip_data = io.BytesIO(zip_file.read())
-            
-            if not zipfile.is_zipfile(zip_data):
-                errors.append(f"{zip_file.filename}: Not a valid ZIP file")
-                continue
-            
-            zip_data.seek(0)
-            
-            verdicted_content = None
-            decisions_content = None
-            verdicted_name = None
-            
-            with zipfile.ZipFile(zip_data, 'r') as zf:
-                print(f"\n📦 ZIP contents for {zip_file.filename}:")
-                for name in zf.namelist():
-                    print(f"   → {name}")
-                
-                for name in zf.namelist():
-                    # Skip directories and hidden files
-                    basename = name.split('/')[-1]
-                    if not basename or basename.startswith('.') or basename.startswith('__'):
-                        continue
-                    if not basename.lower().endswith('.json'):
-                        continue
-                    
-                    content = zf.read(name).decode('utf-8')
-                    
-                    if 'verdicted' in basename.lower():
-                        verdicted_content = content
-                        verdicted_name = basename
-                        print(f"   ✅ Verdicted JSON: {basename} ({len(content)} bytes)")
-                    elif 'decision' in basename.lower():
-                        decisions_content = content
-                        print(f"   ✅ Decisions JSON: {basename} ({len(content)} bytes)")
-                    else:
-                        # If no keyword match, try to detect by content
-                        try:
-                            test_data = json.loads(content)
-                            if isinstance(test_data, dict) and 'runs' in test_data:
-                                verdicted_content = content
-                                verdicted_name = basename
-                                print(f"   ✅ Detected verdicted (by structure): {basename}")
-                        except:
-                            pass
-            
-            if not verdicted_content:
-                errors.append(f"{zip_file.filename}: No verdicted JSON found in ZIP")
-                continue
-            
-            # Parse verdicted JSON
             json_data = json.loads(verdicted_content)
             
             if "runs" not in json_data or not isinstance(json_data["runs"], list) or len(json_data["runs"]) == 0:
-                errors.append(f"{zip_file.filename}: Invalid JSON structure — missing 'runs'")
-                continue
+                return None, f"{source_label}: Invalid JSON — missing 'runs'"
             
-            # Derive model name from project field or zip filename
+            # Derive model name
             model_name = json_data.get("project", "")
             if not model_name:
-                model_name = zip_file.filename.rsplit('.', 1)[0]
+                model_name = model_name_hint or source_label
             
             # Parse decisions (JSONL or JSON)
             model_decisions = {}
             if decisions_content:
-                # Try JSONL first
                 for line in decisions_content.strip().split('\n'):
                     line = line.strip()
                     if line:
@@ -1731,7 +1676,6 @@ def upload_json():
                         except json.JSONDecodeError:
                             pass
                 
-                # If JSONL found nothing, try regular JSON
                 if not model_decisions:
                     try:
                         data = json.loads(decisions_content)
@@ -1748,32 +1692,26 @@ def upload_json():
                     except json.JSONDecodeError:
                         pass
             
-            # Validate and count
             total_runs = len(json_data["runs"])
             total_sast_findings = 0
-            
             for run in json_data["runs"]:
                 if "results" in run and "sast" in run["results"]:
                     for tool, findings in run["results"]["sast"].items():
                         if isinstance(findings, list):
                             total_sast_findings += len(findings)
             
-            # Analyze
             print(f"\n{'='*60}")
             print(f"📦 Processing: {model_name}")
-            print(f"   Source ZIP: {zip_file.filename}")
+            print(f"   Source: {source_label}")
             print(f"   Runs: {total_runs}, SAST findings: {total_sast_findings}")
             if model_decisions:
                 print(f"   AI decisions: {len(model_decisions)}")
             
             analysis = analyze_json_by_language(json_data)
-            
-            # Calculate risk scores
             per_language_scores, global_risk_scores = calculate_risk_scores(analysis, total_runs)
             analysis['risk_scores'] = global_risk_scores
             analysis['risk_scores_by_language'] = per_language_scores
             
-            # Calculate model score
             total_files_with_tp = len(set(
                 file 
                 for lang_data in analysis['by_language'].values()
@@ -1783,35 +1721,227 @@ def upload_json():
             ))
             
             model_score = calculate_model_score(
-                global_risk_scores,
-                total_runs,
-                total_sast_findings,
+                global_risk_scores, total_runs, total_sast_findings,
                 sum(cwe['tp_count'] for cwe in global_risk_scores.values()),
                 total_files_with_tp
             )
             analysis['model_score'] = model_score
             analysis['model_name'] = model_name
             
-            print(f"   Model Score: {model_score['final_score']}/100 ({model_score['rating']})")
             print(f"   CWEs scored: {len(global_risk_scores)}")
             
-            # Store in ALL_MODELS
             ALL_MODELS[model_name] = {
                 'analysis': analysis,
                 'decisions': model_decisions,
                 'model_name': model_name
             }
             
-            models_processed.append({
+            return {
                 'name': model_name,
-                'score': model_score['final_score'],
-                'rating': model_score['rating'],
                 'runs': total_runs,
                 'findings': total_sast_findings,
                 'decisions': len(model_decisions),
                 'cwes': len(global_risk_scores)
-            })
+            }, None
             
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return None, f"{source_label}: {str(e)}"
+    
+    def extract_models_from_zip(zip_bytes, source_filename):
+        """Extract model pairs from a ZIP. Handles:
+        - Flat ZIP: one verdicted + one decisions = one model
+        - Folder ZIP: subfolders each containing verdicted + decisions
+        - Nested ZIP: inner .zip files each containing verdicted + decisions
+        """
+        import zipfile, io
+        
+        if not zipfile.is_zipfile(zip_bytes):
+            return [], [f"{source_filename}: Not a valid ZIP file"]
+        
+        zip_bytes.seek(0)
+        results = []  # list of (verdicted_content, decisions_content, label, hint)
+        errs = []
+        
+        with zipfile.ZipFile(zip_bytes, 'r') as zf:
+            names = zf.namelist()
+            print(f"\n📦 ZIP contents for {source_filename}: ({len(names)} files)")
+            for n in names[:20]:
+                print(f"   → {n}")
+            if len(names) > 20:
+                print(f"   ... and {len(names)-20} more")
+            
+            # Step 1: Check for nested ZIPs
+            inner_zips = [n for n in names if n.lower().endswith('.zip') and '/' not in n.rstrip('/')]
+            # Also check one level deep
+            if not inner_zips:
+                inner_zips = [n for n in names if n.lower().endswith('.zip')]
+            
+            if inner_zips:
+                print(f"   🔍 Found {len(inner_zips)} nested ZIP(s) — extracting each as a model")
+                for inner_name in inner_zips:
+                    try:
+                        inner_bytes = io.BytesIO(zf.read(inner_name))
+                        inner_results, inner_errs = extract_models_from_zip(inner_bytes, f"{source_filename}/{inner_name}")
+                        results.extend(inner_results)
+                        errs.extend(inner_errs)
+                    except Exception as e:
+                        errs.append(f"{source_filename}/{inner_name}: {str(e)}")
+                return results, errs
+            
+            # Step 2: Group JSON files by their parent folder
+            # e.g. "model-a/verdicted.json" → folder "model-a"
+            # e.g. "verdicted.json" → folder ""
+            folder_files = {}  # folder -> [(basename, full_name)]
+            for name in names:
+                parts = name.split('/')
+                basename = parts[-1]
+                if not basename or basename.startswith('.') or basename.startswith('__'):
+                    continue
+                if not basename.lower().endswith('.json'):
+                    continue
+                
+                # Determine folder: everything except the filename
+                if len(parts) >= 2:
+                    # Could be "folder/file.json" or "top/folder/file.json"
+                    # Use the first meaningful directory as the group key
+                    folder = '/'.join(parts[:-1])
+                else:
+                    folder = ''
+                
+                if folder not in folder_files:
+                    folder_files[folder] = []
+                folder_files[folder].append((basename, name))
+            
+            print(f"   🔍 Found JSON files in {len(folder_files)} folder(s): {list(folder_files.keys())[:10]}")
+            
+            # Step 3: If all JSONs are in root (no folders), treat as single model
+            if len(folder_files) == 1 and '' in folder_files:
+                verdicted = None
+                decisions = None
+                vname = None
+                for basename, fullname in folder_files['']:
+                    content = zf.read(fullname).decode('utf-8')
+                    if 'verdicted' in basename.lower():
+                        verdicted = content
+                        vname = basename
+                        print(f"   ✅ Verdicted: {basename}")
+                    elif 'decision' in basename.lower():
+                        decisions = content
+                        print(f"   ✅ Decisions: {basename}")
+                    else:
+                        try:
+                            test = json.loads(content)
+                            if isinstance(test, dict) and 'runs' in test:
+                                verdicted = content
+                                vname = basename
+                                print(f"   ✅ Detected verdicted (by structure): {basename}")
+                        except:
+                            pass
+                
+                if verdicted:
+                    hint = source_filename.rsplit('.', 1)[0]
+                    results.append((verdicted, decisions, source_filename, hint))
+                else:
+                    errs.append(f"{source_filename}: No verdicted JSON found")
+                return results, errs
+            
+            # Step 4: Multiple folders — each folder is a model
+            # Find the deepest folders that actually contain JSON files
+            # Group by the leaf folder that has verdicted files
+            model_folders = {}
+            for folder, files in folder_files.items():
+                if folder == '':
+                    continue
+                has_verdicted = any('verdicted' in b.lower() for b, _ in files)
+                has_runs = False
+                if not has_verdicted:
+                    # Check content structure
+                    for basename, fullname in files:
+                        try:
+                            content = zf.read(fullname).decode('utf-8')
+                            test = json.loads(content)
+                            if isinstance(test, dict) and 'runs' in test:
+                                has_runs = True
+                                break
+                        except:
+                            pass
+                if has_verdicted or has_runs:
+                    model_folders[folder] = files
+            
+            # If no folders had verdicted files, check if root has them
+            if not model_folders and '' in folder_files:
+                verdicted = None
+                decisions = None
+                for basename, fullname in folder_files['']:
+                    content = zf.read(fullname).decode('utf-8')
+                    if 'verdicted' in basename.lower():
+                        verdicted = content
+                    elif 'decision' in basename.lower():
+                        decisions = content
+                if verdicted:
+                    hint = source_filename.rsplit('.', 1)[0]
+                    results.append((verdicted, decisions, source_filename, hint))
+                else:
+                    errs.append(f"{source_filename}: No model data found in any folder")
+                return results, errs
+            
+            print(f"   🔍 Found {len(model_folders)} model folder(s)")
+            
+            for folder, files in model_folders.items():
+                verdicted = None
+                decisions = None
+                for basename, fullname in files:
+                    content = zf.read(fullname).decode('utf-8')
+                    if 'verdicted' in basename.lower():
+                        verdicted = content
+                        print(f"   ✅ [{folder}] Verdicted: {basename}")
+                    elif 'decision' in basename.lower():
+                        decisions = content
+                        print(f"   ✅ [{folder}] Decisions: {basename}")
+                    else:
+                        try:
+                            test = json.loads(content)
+                            if isinstance(test, dict) and 'runs' in test:
+                                verdicted = content
+                                print(f"   ✅ [{folder}] Detected verdicted: {basename}")
+                        except:
+                            pass
+                
+                if verdicted:
+                    # Use the folder name as model name hint
+                    folder_hint = folder.split('/')[-1] if '/' in folder else folder
+                    results.append((verdicted, decisions, f"{source_filename}/{folder}", folder_hint))
+                else:
+                    errs.append(f"{source_filename}/{folder}: No verdicted JSON found")
+        
+        return results, errs
+    
+    # ── MAIN PROCESSING LOOP ─────────────────────────────────────
+    for zip_file in zip_files:
+        if zip_file.filename == "":
+            continue
+        if not allowed_zip_file(zip_file.filename):
+            errors.append(f"{zip_file.filename}: Not a .zip file, skipped")
+            continue
+        
+        try:
+            import zipfile, io
+            zip_data = io.BytesIO(zip_file.read())
+            
+            model_pairs, extract_errors = extract_models_from_zip(zip_data, zip_file.filename)
+            errors.extend(extract_errors)
+            
+            print(f"\n📊 Extracted {len(model_pairs)} model(s) from {zip_file.filename}")
+            
+            for verdicted_content, decisions_content, label, hint in model_pairs:
+                info, err = process_model_pair(verdicted_content, decisions_content, label, hint)
+                if info:
+                    models_processed.append(info)
+                if err:
+                    errors.append(err)
+                    
         except Exception as e:
             errors.append(f"{zip_file.filename}: {str(e)}")
             print(f"ERROR processing {zip_file.filename}: {e}")
@@ -1824,7 +1954,7 @@ def upload_json():
         for m in models_processed:
             decisions_info = f" | 🤖 {m['decisions']} decisions" if m['decisions'] > 0 else ""
             msg_parts.append(
-                f"  • {m['name']}: {m['score']}/100 ({m['rating']}) — "
+                f"  • {m['name']}: "
                 f"{m['runs']} runs, {m['findings']} findings, {m['cwes']} CWEs{decisions_info}"
             )
         flash(" | ".join(msg_parts), "success")
